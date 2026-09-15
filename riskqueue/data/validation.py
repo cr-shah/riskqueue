@@ -20,6 +20,21 @@ class DataValidationError(ValueError):
     """Raised when transaction data cannot be used safely."""
 
 
+def _numeric_column(data: pd.DataFrame, column: str) -> pd.Series:
+    """Return a finite real numeric column or raise the public validation error."""
+    try:
+        values = pd.to_numeric(data[column], errors="raise")
+        raw_values = values.to_numpy()
+        if np.iscomplexobj(raw_values):
+            raise ValueError
+        numeric_values = raw_values.astype(float)
+    except (TypeError, ValueError, OverflowError):
+        raise DataValidationError(f"{column} must contain numeric values") from None
+    if not np.isfinite(numeric_values).all():
+        raise DataValidationError(f"{column} must contain finite numeric values")
+    return values
+
+
 def _validate_core(frame: pd.DataFrame, required: set[str]) -> pd.DataFrame:
     missing = required.difference(frame.columns)
     if missing:
@@ -29,18 +44,16 @@ def _validate_core(frame: pd.DataFrame, required: set[str]) -> pd.DataFrame:
         raise DataValidationError("Dataset is empty")
     if data[list(required)].isnull().any().any():
         raise DataValidationError("Required columns contain null values")
-    try:
-        data["amount"] = pd.to_numeric(data["amount"], errors="raise").astype(float)
-        numeric_steps = pd.to_numeric(data["step"], errors="raise").astype(float)
-    except (TypeError, ValueError) as exc:
-        raise DataValidationError("amount and step must be numeric") from exc
-    if not np.isfinite(data["amount"]).all() or (data["amount"] < 0).any():
+    amount = _numeric_column(data, "amount")
+    if (amount < 0).any():
         raise DataValidationError("amount must contain finite non-negative values")
-    if not np.isfinite(numeric_steps).all() or (numeric_steps < 0).any():
+    data["amount"] = amount.astype(float)
+    step = _numeric_column(data, "step")
+    if (step < 0).any() or (step % 1 != 0).any():
         raise DataValidationError("step must contain finite non-negative integers")
-    if not np.equal(numeric_steps, np.floor(numeric_steps)).all():
-        raise DataValidationError("step must contain finite non-negative integers")
-    data["step"] = numeric_steps.astype(int)
+    if (step >= 2**63).any():
+        raise DataValidationError("step exceeds the supported integer range")
+    data["step"] = step.astype(np.int64)
     invalid_types = set(data["type"]).difference(TRANSACTION_TYPES)
     if invalid_types:
         raise DataValidationError(f"Invalid transaction types: {sorted(invalid_types)}")
@@ -60,6 +73,8 @@ def validate_scoring_transactions(frame: pd.DataFrame) -> pd.DataFrame:
 def validate_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     """Validate the PaySim-compatible training contract and return a copy."""
     data = _validate_core(frame, REQUIRED_COLUMNS)
-    if not set(data["isFraud"].unique()).issubset({0, 1}):
+    labels = _numeric_column(data, "isFraud")
+    if not labels.isin([0, 1]).all():
         raise DataValidationError("isFraud must be binary")
+    data["isFraud"] = labels.astype(np.int64)
     return data
