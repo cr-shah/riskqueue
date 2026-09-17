@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,7 +17,7 @@ class ModelMetadata:
     roc_auc: float
     brier: float
     decision_threshold: float
-    created_at: str = datetime.now(UTC).isoformat()
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 def save_artifact(model, metadata: ModelMetadata, directory: str | Path) -> None:
