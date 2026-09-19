@@ -15,8 +15,8 @@ RiskQueue scores transactions, quantifies the dollars exposed, and places the mo
 
 | Rare-event ranking | Operational outcome at 750 reviews | Decision policy | Engineering |
 |---|---|---|---|
-| **0.130 average precision** | **97.1% fraud value captured** with expected-loss ranking | **$9,034 modeled cost** at the validation-selected cost threshold | **10.90 ms p95** for batch 1,000 |
-| 3.49% demo fraud rate | vs. 95.1% using probability alone | vs. $34,205 at threshold 0.50 | In-process local benchmark; 57 tests pass |
+| **0.113 average precision** | **96.9% fraud value captured** with expected-loss ranking | **$8,280 modeled cost** at the validation-selected cost threshold | **10.90 ms p95** for batch 1,000 |
+| 3.49% demo fraud rate | vs. 92.3% using probability alone | vs. $38,906 at threshold 0.50 | In-process local benchmark; 60 tests pass |
 
 ## Results at a glance
 
@@ -28,21 +28,21 @@ Fraud is a small share of transactions, so accuracy is not a useful headline. Pr
 
 | Held-out demo model | Average precision | ROC-AUC | Brier score |
 |---|---:|---:|---:|
-| Logistic Regression | 0.097 | **0.749** | 0.158 |
-| Histogram Gradient Boosting demo fallback | **0.130** | 0.745 | **0.033** |
+| Logistic Regression + sigmoid calibration | 0.097 | **0.749** | 0.033 |
+| Histogram Gradient Boosting demo fallback + sigmoid calibration | **0.113** | 0.734 | **0.033** |
 
 ### 2. What happens when analysts can review only a limited queue?
 
 ![Analyst capacity versus fraud value](artifacts/figures/capacity_value.png)
 
-The chart measures how much fraudulent transaction value appears in the first *k* reviews. At 750 demo reviews, probability ranking captures 95.1% of fraudulent value, while expected-loss ranking captures 97.1%. The comparison matters because a slightly less likely but much larger transaction can deserve earlier review when the objective is dollars protected.
+The chart measures how much fraudulent transaction value appears in the first *k* reviews. At 750 demo reviews, probability ranking captures 92.3% of fraudulent value, while expected-loss ranking captures 96.9%. The comparison matters because a slightly less likely but much larger transaction can deserve earlier review when the objective is dollars protected.
 
 | Reviews | Probability queue | Expected-loss queue | Improvement |
 |---:|---:|---:|---:|
-| 100 | 53.6% | **68.3%** | +14.7 points |
-| 250 | 79.0% | **85.5%** | +6.5 points |
-| 500 | 87.2% | **94.2%** | +7.0 points |
-| 750 | 95.1% | **97.1%** | +2.0 points |
+| 100 | 55.5% | **68.3%** | +12.8 points |
+| 250 | 76.9% | **84.1%** | +7.2 points |
+| 500 | 86.9% | **94.7%** | +7.8 points |
+| 750 | 92.3% | **96.9%** | +4.6 points |
 
 ### 3. Why is 0.50 not automatically the right threshold?
 
@@ -52,9 +52,9 @@ The score estimates risk; it does not decide the operating policy by itself. The
 
 | Policy | Threshold | Reviews | Precision | Recall | Modeled cost |
 |---|---:|---:|---:|---:|---:|
-| Default | 0.50 | 2 | 100.0% | 3.3% | $34,205 |
-| F1-optimal | 0.15 | 78 | 16.7% | 21.3% | $18,613 |
-| Cost-optimized | **0.03** | 291 | 9.3% | **44.3%** | **$9,034** |
+| Default | 0.50 | 0 | 0.0% | 0.0% | $38,906 |
+| F1-optimal | 0.12 | 75 | 16.0% | 19.7% | $18,628 |
+| Cost-optimized | **0.04** | 312 | 8.7% | **44.3%** | **$8,280** |
 
 ### 4. Would the system notice changed transaction behavior?
 
@@ -89,6 +89,8 @@ flowchart LR
 ```
 
 The primary split uses whole time steps: earliest 70% for training, next 15% for validation and final 15% for test. History features update state only after a row is transformed. `isFlaggedFraud` and the four balance columns never enter the model feature list.
+
+After validation average precision selects the base model, sigmoid calibration is fitted on that chronological validation period. Thresholds are selected from the calibrated validation probabilities, and the calibrated model is evaluated once on the final test period.
 
 ## Explore in three minutes
 

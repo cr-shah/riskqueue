@@ -32,6 +32,8 @@ def generate_report_artifacts(
     model_probabilities: dict[str, np.ndarray],
     output: str | Path,
     threshold_source: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    *,
+    selected_model: str,
 ) -> dict:
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -39,6 +41,10 @@ def generate_report_artifacts(
     metrics = {
         name: classification_metrics(labels, probs) for name, probs in model_probabilities.items()
     }
+    if selected_model not in metrics:
+        raise ValueError(f"Selected model is missing probabilities: {selected_model}")
+    best_name = selected_model
+    best_probs = model_probabilities[best_name]
 
     fig, ax = plt.subplots(figsize=(8.4, 5.2))
     prevalence = labels.mean()
@@ -62,9 +68,6 @@ def generate_report_artifacts(
     ax.grid(alpha=0.18)
     ax.legend(frameon=False)
     _finish(fig, output / "precision_recall.png")
-
-    best_name = max(metrics, key=lambda name: metrics[name]["average_precision"])
-    best_probs = model_probabilities[best_name]
 
     # Diagnostics used by the model-performance dashboard.
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
