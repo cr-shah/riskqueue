@@ -11,6 +11,11 @@ The application combines **AWS S3, Lambda, SQS, a containerized Python worker, P
 > [!IMPORTANT]
 > The checked-in metrics are reproducible results from a deterministic synthetic demo. They are not PaySim results and do not establish performance for a real financial institution.
 
+| Rare-event ranking | Operational outcome at 750 reviews | Decision policy |
+|---|---|---|
+| **0.113 average precision** | **96.9% fraud value captured** with expected-loss ranking | **$8,280 modeled cost** at the validation-selected cost threshold |
+| 3.49% demo fraud rate | vs. 92.3% using probability alone | vs. $38,906 at threshold 0.50 |
+
 ## Problem
 
 Fraud operations face two simultaneous constraints: transactions have unequal financial exposure, and analysts can investigate only a limited number of alerts. A useful system must do more than classify transactions. It must preserve source evidence, process events reliably, prevent duplicate financial records, expose current analyst state quickly, and retain analytical history for monitoring and policy evaluation.
@@ -31,13 +36,13 @@ RiskQueue separates these concerns:
 |---|---:|
 | Held-out synthetic transactions | **1,749** |
 | Fraud rate | **3.49%** |
-| Expected-loss value capture at 750 reviews | **97.2%** |
+| Expected-loss value capture at 750 reviews | **96.9%** |
 | Probability-only value capture at 750 reviews | **92.3%** |
-| Expected-loss improvement | **4.9 percentage points** |
+| Expected-loss improvement | **4.6 percentage points** |
 | Amount drift PSI in shifted demo | **0.19 — watch** |
 | Local in-process batch API p95 at 1,000 | **10.90 ms** |
 
-Expected-loss ranking also captures 69.8% of fraud value in 100 reviews and 94.7% in 500 reviews. These values come from the checked-in generated artifacts and are not cloud throughput claims.
+Expected-loss ranking also captures 68.3% of fraud value in 100 reviews and 94.7% in 500 reviews. These values come from the checked-in generated artifacts and are not cloud throughput claims.
 
 ## Architecture
 
