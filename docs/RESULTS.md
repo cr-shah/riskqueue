@@ -8,7 +8,7 @@ The checked-in report is a **deterministic synthetic demo**, included so the rep
 2. Logistic regression versus nonlinear gradient boosting.
 3. Average precision, ROC-AUC, Brier, log loss, precision, recall, and F1.
 4. 0.50, validation F1-optimal, and validation cost-optimized thresholds.
-5. Probability versus expected-loss review queues across five capacity levels.
+5. Probability versus expected-loss review queues across seven capacity levels.
 6. A shifted-batch PSI monitoring demonstration.
 7. A local in-process API benchmark: batch 1,000 median 7.50 ms and p95 10.90 ms.
 

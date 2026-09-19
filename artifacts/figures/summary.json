@@ -3,55 +3,55 @@
   "transactions": 1749,
   "fraud_cases": 61,
   "fraud_rate": 0.03487707261292167,
-  "best_model": "Histogram Gradient Boosting (demo fallback)",
+  "best_model": "Histogram Gradient Boosting (demo fallback) + sigmoid calibration",
   "metrics": {
-    "Logistic Regression": {
+    "Logistic Regression + sigmoid calibration": {
       "average_precision": 0.09678051961425205,
       "roc_auc": 0.7490288244891616,
-      "brier": 0.157796436469829,
-      "log_loss": 0.4925102062200482,
-      "precision": 0.08027522935779817,
-      "recall": 0.5737704918032787,
-      "f1": 0.14084507042253522
+      "brier": 0.033402351083231,
+      "log_loss": 0.1466957539220205,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     },
-    "Histogram Gradient Boosting (demo fallback)": {
+    "Histogram Gradient Boosting (demo fallback) + sigmoid calibration": {
       "average_precision": 0.11323123436653515,
       "roc_auc": 0.7341309921529018,
-      "brier": 0.03387015187361776,
-      "log_loss": 0.1535594455001957,
-      "precision": 0.5,
-      "recall": 0.01639344262295082,
-      "f1": 0.031746031746031744
+      "brier": 0.03277462561063421,
+      "log_loss": 0.14180052051565034,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     }
   },
-  "selected_threshold": 0.01,
+  "selected_threshold": 0.04,
   "threshold_policies": [
     {
       "policy": "Default 0.50",
       "threshold": 0.5,
-      "reviews": 2,
-      "precision": 0.5,
-      "recall": 0.01639344262295082,
-      "f1": 0.031746031746031744,
-      "modeled_cost": 35882.829999999994
+      "reviews": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "modeled_cost": 38906.27999999999
     },
     {
       "policy": "F1-optimal",
-      "threshold": 0.08,
-      "reviews": 142,
-      "precision": 0.13380281690140844,
-      "recall": 0.3114754098360656,
-      "f1": 0.18719211822660098,
-      "modeled_cost": 11513.67
+      "threshold": 0.12,
+      "reviews": 75,
+      "precision": 0.16,
+      "recall": 0.19672131147540983,
+      "f1": 0.17647058823529413,
+      "modeled_cost": 18627.940000000002
     },
     {
       "policy": "Cost-optimized",
-      "threshold": 0.01,
-      "reviews": 631,
-      "precision": 0.06497622820919176,
-      "recall": 0.6721311475409836,
-      "f1": 0.11849710982658959,
-      "modeled_cost": 7104.86
+      "threshold": 0.04,
+      "reviews": 312,
+      "precision": 0.08653846153846154,
+      "recall": 0.4426229508196721,
+      "f1": 0.1447721179624665,
+      "modeled_cost": 8280.369999999999
     }
   ],
   "capacity_results": [
@@ -131,28 +131,28 @@
       "strategy": "expected_loss",
       "capacity": 50,
       "reviews": 50.0,
-      "precision": 0.16,
-      "fraud_recall": 0.13114754098360656,
-      "fraud_amount_captured": 20359.809999999998,
-      "fraud_value_capture": 0.5233039499021752
+      "precision": 0.18,
+      "fraud_recall": 0.14754098360655737,
+      "fraud_amount_captured": 22220.8,
+      "fraud_value_capture": 0.5711365877179726
     },
     {
       "strategy": "expected_loss",
       "capacity": 100,
       "reviews": 100.0,
-      "precision": 0.15,
-      "fraud_recall": 0.2459016393442623,
-      "fraud_amount_captured": 27137.33,
-      "fraud_value_capture": 0.697505132847448
+      "precision": 0.14,
+      "fraud_recall": 0.22950819672131148,
+      "fraud_amount_captured": 26564.61,
+      "fraud_value_capture": 0.6827846301419721
     },
     {
       "strategy": "expected_loss",
       "capacity": 250,
       "reviews": 250.0,
-      "precision": 0.092,
-      "fraud_recall": 0.3770491803278688,
-      "fraud_amount_captured": 31930.4,
-      "fraud_value_capture": 0.8207004113474742
+      "precision": 0.088,
+      "fraud_recall": 0.36065573770491804,
+      "fraud_amount_captured": 32707.73,
+      "fraud_value_capture": 0.8406799622066157
     },
     {
       "strategy": "expected_loss",
@@ -167,19 +167,19 @@
       "strategy": "expected_loss",
       "capacity": 750,
       "reviews": 750.0,
-      "precision": 0.058666666666666666,
-      "fraud_recall": 0.7213114754098361,
-      "fraud_amount_captured": 37817.25,
-      "fraud_value_capture": 0.972008889053387
+      "precision": 0.056,
+      "fraud_recall": 0.6885245901639344,
+      "fraud_amount_captured": 37719.46,
+      "fraud_value_capture": 0.9694954130798423
     },
     {
       "strategy": "expected_loss",
       "capacity": 1000,
       "reviews": 1000.0,
-      "precision": 0.052,
-      "fraud_recall": 0.8524590163934426,
-      "fraud_amount_captured": 38650.560000000005,
-      "fraud_value_capture": 0.9934272821765538
+      "precision": 0.049,
+      "fraud_recall": 0.8032786885245902,
+      "fraud_amount_captured": 38517.51,
+      "fraud_value_capture": 0.9900075257773298
     },
     {
       "strategy": "expected_review_value",
@@ -194,28 +194,28 @@
       "strategy": "expected_review_value",
       "capacity": 50,
       "reviews": 50.0,
-      "precision": 0.16,
-      "fraud_recall": 0.13114754098360656,
-      "fraud_amount_captured": 20359.809999999998,
-      "fraud_value_capture": 0.5233039499021752
+      "precision": 0.18,
+      "fraud_recall": 0.14754098360655737,
+      "fraud_amount_captured": 22220.8,
+      "fraud_value_capture": 0.5711365877179726
     },
     {
       "strategy": "expected_review_value",
       "capacity": 100,
       "reviews": 100.0,
-      "precision": 0.15,
-      "fraud_recall": 0.2459016393442623,
-      "fraud_amount_captured": 27137.33,
-      "fraud_value_capture": 0.697505132847448
+      "precision": 0.14,
+      "fraud_recall": 0.22950819672131148,
+      "fraud_amount_captured": 26564.61,
+      "fraud_value_capture": 0.6827846301419721
     },
     {
       "strategy": "expected_review_value",
       "capacity": 250,
       "reviews": 250.0,
-      "precision": 0.092,
-      "fraud_recall": 0.3770491803278688,
-      "fraud_amount_captured": 31930.4,
-      "fraud_value_capture": 0.8207004113474742
+      "precision": 0.088,
+      "fraud_recall": 0.36065573770491804,
+      "fraud_amount_captured": 32707.73,
+      "fraud_value_capture": 0.8406799622066157
     },
     {
       "strategy": "expected_review_value",
@@ -230,19 +230,19 @@
       "strategy": "expected_review_value",
       "capacity": 750,
       "reviews": 750.0,
-      "precision": 0.058666666666666666,
-      "fraud_recall": 0.7213114754098361,
-      "fraud_amount_captured": 37817.25,
-      "fraud_value_capture": 0.972008889053387
+      "precision": 0.056,
+      "fraud_recall": 0.6885245901639344,
+      "fraud_amount_captured": 37719.46,
+      "fraud_value_capture": 0.9694954130798423
     },
     {
       "strategy": "expected_review_value",
       "capacity": 1000,
       "reviews": 1000.0,
-      "precision": 0.052,
-      "fraud_recall": 0.8524590163934426,
-      "fraud_amount_captured": 38650.560000000005,
-      "fraud_value_capture": 0.9934272821765538
+      "precision": 0.049,
+      "fraud_recall": 0.8032786885245902,
+      "fraud_amount_captured": 38517.51,
+      "fraud_value_capture": 0.9900075257773298
     }
   ],
   "monitoring": {
