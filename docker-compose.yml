@@ -2,11 +2,11 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: riskqueue
-      POSTGRES_USER: riskqueue
-      POSTGRES_PASSWORD: riskqueue
+      POSTGRES_DB: ${POSTGRES_DB:-riskqueue}
+      POSTGRES_USER: ${POSTGRES_USER:-riskqueue}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U riskqueue"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-riskqueue}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -17,7 +17,7 @@ services:
     build: .
     ports: ["8000:8000"]
     environment:
-      DATABASE_URL: postgresql+psycopg://riskqueue:riskqueue@postgres:5432/riskqueue
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskqueue}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-riskqueue}
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,6 +25,34 @@ services:
     build: .
     command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0"]
     ports: ["8501:8501"]
+  worker:
+    profiles: ["cloud"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskqueue}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-riskqueue}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      PROCESSING_QUEUE_URL: ${PROCESSING_QUEUE_URL}
+      OBJECT_STORE_BACKEND: ${OBJECT_STORE_BACKEND:-s3}
+      LOCAL_OBJECT_STORE_ROOT: /app/data/raw-events
+      MODEL_VERSION: ${MODEL_VERSION:-demo-policy-v1}
+      MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-artifacts/models}
+      REVIEW_CAPACITY: ${REVIEW_CAPACITY:-750}
+      MANUAL_REVIEW_COST: ${MANUAL_REVIEW_COST:-4}
+      SNOWFLAKE_ENABLED: ${SNOWFLAKE_ENABLED:-false}
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
+      SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD:-}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-}
+      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-RISKQUEUE_ANALYTICS}
+      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-}
+    volumes:
+      - ./data/raw-events:/app/data/raw-events
+      - ./artifacts/models:/app/artifacts/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
 volumes:
   riskqueue-postgres:
-

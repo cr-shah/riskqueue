@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from riskqueue.data.validation import DataValidationError, validate_transactions
+from riskqueue.data.validation import (
+    DataValidationError,
+    validate_scoring_transactions,
+    validate_transactions,
+)
 
 
 def test_valid_data_is_sorted(transactions):
@@ -37,3 +41,15 @@ def test_null_required_value_rejected(transactions):
     transactions.loc[0, "nameOrig"] = None
     with pytest.raises(DataValidationError, match="null"):
         validate_transactions(transactions)
+
+
+def test_inference_contract_does_not_require_fraud_label(transactions):
+    inference = transactions.drop(columns="isFraud")
+    result = validate_scoring_transactions(inference)
+    assert len(result) == len(inference)
+
+
+def test_training_contract_does_not_require_synthetic_transaction_id(transactions):
+    paysim_shape = transactions.drop(columns="transaction_id")
+    result = validate_transactions(paysim_shape)
+    assert len(result) == len(paysim_shape)

@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY riskqueue ./riskqueue
+RUN pip install --no-cache-dir .
+COPY sql ./sql
+
+RUN useradd --create-home --uid 10001 riskqueue
+USER riskqueue
+
+CMD ["python", "-m", "riskqueue.worker"]

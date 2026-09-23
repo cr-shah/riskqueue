@@ -1,8 +1,19 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.coverage
+htmlcov/
 .ruff_cache/
 .env
+.aws-sam/
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+lambda-package.zip
+dist/
+.lambda-build/
+data/raw-events/
 data/raw/*.csv
 data/interim/*
 data/processed/*
@@ -10,4 +21,3 @@ data/processed/*
 !data/processed/.gitkeep
 artifacts/models/*
 !artifacts/models/.gitkeep
-
