@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import os
 
 from fastapi import FastAPI
 
 from riskqueue.api.schemas import BatchRequest, QueueRequest, ScoreResponse, Transaction
+from riskqueue.scoring import demo_probability, risk_band
 
 app = FastAPI(
     title="RiskQueue API",
@@ -14,32 +14,14 @@ app = FastAPI(
 )
 
 
-def _demo_probability(tx: Transaction) -> float:
-    """Stable demo scorer used only when a fitted artifact is unavailable."""
-    risky_type = {"TRANSFER": 0.34, "CASH_OUT": 0.22}.get(tx.type, 0.03)
-    amount_component = min(0.42, tx.amount / 100_000)
-    hour_component = 0.08 if tx.step % 24 < 5 else 0.0
-    jitter = int(hashlib.sha256(tx.transaction_id.encode()).hexdigest()[:4], 16) / 65535 * 0.04
-    return min(0.99, 0.015 + risky_type + amount_component + hour_component + jitter)
-
-
 def _score(tx: Transaction) -> ScoreResponse:
-    probability = _demo_probability(tx)
+    probability = demo_probability(tx.transaction_id, tx.step, tx.type, tx.amount)
     loss = probability * tx.amount
-    band = (
-        "critical"
-        if probability >= 0.75
-        else "high"
-        if probability >= 0.4
-        else "guarded"
-        if probability >= 0.1
-        else "low"
-    )
     return ScoreResponse(
         transaction_id=tx.transaction_id,
         fraud_probability=round(probability, 6),
         expected_loss=round(loss, 2),
-        risk_band=band,
+        risk_band=risk_band(probability),
         decision="review" if loss > 4 else "approve",
         model_version=os.getenv("MODEL_VERSION", "demo-policy-v1"),
     )
