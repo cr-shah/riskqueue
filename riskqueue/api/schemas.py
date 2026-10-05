@@ -10,9 +10,9 @@ TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
 class Transaction(BaseModel):
     transaction_id: str = Field(min_length=1, max_length=120)
-    step: int = Field(ge=0)
+    step: int = Field(ge=0, le=10_000_000, strict=True)
     type: TransactionType
-    amount: float = Field(ge=0)
+    amount: float = Field(ge=0, le=1e12, strict=True)
     nameOrig: str = Field(min_length=1, max_length=120)
     nameDest: str = Field(min_length=1, max_length=120)
 
@@ -27,6 +27,13 @@ class Transaction(BaseModel):
 class BatchRequest(BaseModel):
     transactions: list[Transaction] = Field(min_length=1, max_length=1000)
 
+    @field_validator("transactions")
+    @classmethod
+    def unique_ids(cls, transactions: list[Transaction]) -> list[Transaction]:
+        if len({tx.transaction_id for tx in transactions}) != len(transactions):
+            raise ValueError("transaction_id must be unique within a batch")
+        return transactions
+
 
 class ScoreResponse(BaseModel):
     transaction_id: str
@@ -37,7 +44,8 @@ class ScoreResponse(BaseModel):
     model_version: str
 
 
-class QueueRequest(BaseModel):
-    transactions: list[Transaction] = Field(min_length=1, max_length=1000)
-    capacity: int = Field(default=100, ge=1, le=1000)
+class QueueRequest(BatchRequest):
+    capacity: int = Field(default=100, ge=1, le=1000, strict=True)
     strategy: Literal["probability", "expected_loss", "expected_review_value"] = "expected_loss"
+    manual_review_cost: float = Field(default=4.0, ge=0, le=1000, allow_inf_nan=False)
+    loss_fraction: float = Field(default=1.0, ge=0, le=1, allow_inf_nan=False)

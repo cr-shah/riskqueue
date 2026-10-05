@@ -14,15 +14,17 @@ app = FastAPI(
 )
 
 
-def _score(tx: Transaction) -> ScoreResponse:
+def _score(
+    tx: Transaction, loss_fraction: float = 1.0, manual_review_cost: float = 4.0
+) -> ScoreResponse:
     probability = demo_probability(tx.transaction_id, tx.step, tx.type, tx.amount)
-    loss = probability * tx.amount
+    loss = probability * tx.amount * loss_fraction
     return ScoreResponse(
         transaction_id=tx.transaction_id,
         fraud_probability=round(probability, 6),
         expected_loss=round(loss, 2),
         risk_band=risk_band(probability),
-        decision="review" if loss > 4 else "approve",
+        decision="review" if loss > manual_review_cost else "approve",
         model_version=os.getenv("MODEL_VERSION", "demo-policy-v1"),
     )
 
@@ -45,7 +47,8 @@ def score_batch(request: BatchRequest) -> list[ScoreResponse]:
 @app.post("/v1/review-queue")
 def review_queue(request: QueueRequest) -> list[dict]:
     scored = [
-        _score(tx).model_dump() | {"amount": tx.amount, "type": tx.type}
+        _score(tx, request.loss_fraction, request.manual_review_cost).model_dump()
+        | {"amount": tx.amount, "type": tx.type}
         for tx in request.transactions
     ]
     key = {
@@ -59,7 +62,7 @@ def review_queue(request: QueueRequest) -> list[dict]:
     for rank, row in enumerate(selected, 1):
         row["rank"] = rank
         if request.strategy == "expected_review_value":
-            row["priority_score"] = round(row["expected_loss"] - 4, 2)
+            row["priority_score"] = round(row["expected_loss"] - request.manual_review_cost, 2)
         else:
             row["priority_score"] = row[key]
     return selected

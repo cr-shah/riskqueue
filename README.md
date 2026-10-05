@@ -6,6 +6,10 @@ RiskQueue is a cloud-ready transaction risk and fraud-operations system. It pres
 
 The application combines **AWS S3, Lambda, SQS, a containerized Python worker, PostgreSQL, Snowflake, Prefect, FastAPI, Streamlit, Terraform, scikit-learn, and XGBoost-ready modeling**.
 
+**[Open the interactive RiskQueue workspace](https://cr-shah.github.io/riskqueue/)** — responsive capacity planning, scenario comparison, a filterable review queue, case explanations, calibrated model diagnostics, and reproducible CSV/JSON exports. The public website uses a historical synthetic snapshot; cloud operations remain separate.
+
+The website uses dependency-free JavaScript, semantic HTML, CSS, and interactive SVG charts, with a Python snapshot builder and GitHub Actions deployment. See [website architecture, testing, and publishing](docs/WEBSITE.md).
+
 ![RiskQueue generated dashboard overview](artifacts/figures/dashboard_overview.png)
 
 > [!IMPORTANT]
@@ -225,7 +229,7 @@ The six-view Streamlit dashboard covers executive results, model performance, an
 
 ## Testing
 
-The suite contains **73 tests** and requires no live AWS or Snowflake account. Cloud behavior is verified through local adapters and injected clients.
+The Python suite requires no live AWS or Snowflake account. Cloud behavior is verified through local adapters and injected clients. The website adds cross-engine policy parity tests and desktop/mobile browser tests with accessibility checks.
 
 Coverage includes:
 

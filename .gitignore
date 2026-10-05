@@ -4,6 +4,9 @@ __pycache__/
 .coverage
 htmlcov/
 .ruff_cache/
+node_modules/
+test-results/
+playwright-report/
 .env
 .aws-sam/
 .terraform/
