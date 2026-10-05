@@ -6,10 +6,19 @@ RiskQueue is a cloud-ready transaction risk and fraud-operations system. It pres
 
 The application combines **AWS S3, Lambda, SQS, a containerized Python worker, PostgreSQL, Snowflake, Prefect, FastAPI, Streamlit, Terraform, scikit-learn, and XGBoost-ready modeling**.
 
+**[Open the interactive RiskQueue workspace](https://cr-shah.github.io/riskqueue/)** — responsive capacity planning, scenario comparison, a filterable review queue, case explanations, calibrated model diagnostics, and reproducible CSV/JSON exports. The public website uses a historical synthetic snapshot; cloud operations remain separate.
+
+The website uses dependency-free JavaScript, semantic HTML, CSS, and interactive SVG charts, with a Python snapshot builder and GitHub Actions deployment. See [website architecture, testing, and publishing](docs/WEBSITE.md).
+
 ![RiskQueue generated dashboard overview](artifacts/figures/dashboard_overview.png)
 
 > [!IMPORTANT]
 > The checked-in metrics are reproducible results from a deterministic synthetic demo. They are not PaySim results and do not establish performance for a real financial institution.
+
+| Rare-event ranking | Operational outcome at 750 reviews | Decision policy |
+|---|---|---|
+| **0.113 average precision** | **96.9% fraud value captured** with expected-loss ranking | **$8,280 modeled cost** at the validation-selected cost threshold |
+| 3.49% demo fraud rate | vs. 92.3% using probability alone | vs. $38,906 at threshold 0.50 |
 
 ## Problem
 
@@ -31,13 +40,13 @@ RiskQueue separates these concerns:
 |---|---:|
 | Held-out synthetic transactions | **1,749** |
 | Fraud rate | **3.49%** |
-| Expected-loss value capture at 750 reviews | **97.2%** |
+| Expected-loss value capture at 750 reviews | **96.9%** |
 | Probability-only value capture at 750 reviews | **92.3%** |
-| Expected-loss improvement | **4.9 percentage points** |
+| Expected-loss improvement | **4.6 percentage points** |
 | Amount drift PSI in shifted demo | **0.19 — watch** |
 | Local in-process batch API p95 at 1,000 | **10.90 ms** |
 
-Expected-loss ranking also captures 69.8% of fraud value in 100 reviews and 94.7% in 500 reviews. These values come from the checked-in generated artifacts and are not cloud throughput claims.
+Expected-loss ranking also captures 68.3% of fraud value in 100 reviews and 94.7% in 500 reviews. These values come from the checked-in generated artifacts and are not cloud throughput claims.
 
 ## Architecture
 
@@ -220,7 +229,7 @@ The six-view Streamlit dashboard covers executive results, model performance, an
 
 ## Testing
 
-The suite contains **73 tests** and requires no live AWS or Snowflake account. Cloud behavior is verified through local adapters and injected clients.
+The Python suite requires no live AWS or Snowflake account. Cloud behavior is verified through local adapters and injected clients. The website adds cross-engine policy parity tests and desktop/mobile browser tests with accessibility checks.
 
 Coverage includes:
 

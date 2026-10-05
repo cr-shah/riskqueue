@@ -12,6 +12,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+try:
+    from sklearn.frozen import FrozenEstimator
+except ImportError:  # scikit-learn 1.5 uses the older prefit calibration API.
+    FrozenEstimator = None
+
 from riskqueue.features.schema import CATEGORICAL_FEATURES, MODEL_FEATURES, assert_leakage_safe
 
 
@@ -91,6 +96,14 @@ def train_boosted(frame: pd.DataFrame, labels) -> TrainedModel:
 
 
 def calibrate_prefit(model: TrainedModel, validation: pd.DataFrame, labels) -> TrainedModel:
-    calibrated = CalibratedClassifierCV(model.estimator, method="sigmoid", cv="prefit")
+    if FrozenEstimator is None:
+        calibrated = CalibratedClassifierCV(model.estimator, method="sigmoid", cv="prefit")
+    else:
+        indices = np.arange(len(validation))
+        calibrated = CalibratedClassifierCV(
+            FrozenEstimator(model.estimator),
+            method="sigmoid",
+            cv=[(indices, indices)],
+        )
     calibrated.fit(validation[model.feature_names], labels)
     return TrainedModel(f"{model.name} + sigmoid calibration", calibrated, model.feature_names)

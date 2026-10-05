@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="description"
+      content="RiskQueue turns fraud risk into better review decisions. Explore reproducible model results, compare policies, and inspect a capacity-aware analyst queue."
+    />
+    <meta name="theme-color" content="#203f35" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    />
+    <title>RiskQueue — Every review counts.</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to workspace</a>
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="RiskQueue overview"
+        ><img src="./favicon.svg" alt="" width="38" height="38" /><span
+          >RiskQueue<span class="brand-caption"
+            >DECISION INTELLIGENCE</span
+          ></span
+        ></a
+      >
+      <div class="workspace-badge">
+        <span class="status-dot"></span> Synthetic evaluation
+        <span class="mono">v1</span>
+      </div>
+      <span class="nav-caption">WORKSPACE</span>
+      <nav aria-label="Workspace views" id="navigation">
+        <a href="#overview" data-page="overview"
+          ><span aria-hidden="true">▦</span> Overview
+          <span class="nav-key">01</span></a
+        >
+        <a href="#queue" data-page="queue"
+          ><span aria-hidden="true">☷</span> Review queue
+          <span class="nav-key">02</span></a
+        >
+        <a href="#scenarios" data-page="scenarios"
+          ><span aria-hidden="true">⇄</span> Scenario studio
+          <span class="nav-key">03</span></a
+        >
+        <a href="#models" data-page="models"
+          ><span aria-hidden="true">◈</span> Model insights
+          <span class="nav-key">04</span></a
+        >
+        <a href="#scoring" data-page="scoring"
+          ><span aria-hidden="true">⌁</span> Scoring lab
+          <span class="nav-key">05</span></a
+        >
+        <a href="#evidence" data-page="evidence"
+          ><span aria-hidden="true">⊞</span> Evidence & drift
+          <span class="nav-key">06</span></a
+        >
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note">
+          <span class="small-label">BUILT FOR THE TRADEOFF</span>
+          <p>Better priorities.<br />Every review counts.</p>
+          <span class="tiny"
+            >A transparent space to explore risk, exposure, and limited
+            capacity.</span
+          >
+        </div>
+        <a
+          href="https://github.com/cr-shah/riskqueue"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="repo-link"
+          >Explore the source <span aria-hidden="true">↗</span></a
+        >
+        <div class="profile">
+          <span class="avatar">RQ</span
+          ><span
+            >Research workspace<small>Public synthetic data only</small></span
+          >
+        </div>
+      </div>
+    </aside>
+    <div class="app-shell">
+      <header class="topbar">
+        <span class="breadcrumb"
+          >Workspace <span aria-hidden="true">/</span>
+          <strong id="breadcrumb-page">Overview</strong></span
+        >
+        <div class="topbar-actions">
+          <span class="snapshot-label"
+            ><span class="status-dot"></span> Reproducible snapshot</span
+          ><button class="button subtle" id="share-button">
+            Share scenario <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="loading-state" role="status">
+          <div class="loading-symbol">RQ</div>
+          <h1>Preparing your workspace</h1>
+          <p>Loading the reproducible evaluation snapshot…</p>
+          <div class="skeleton"></div>
+          <div class="skeleton short"></div>
+        </div>
+      </main>
+      <footer class="footer">
+        <span
+          >RiskQueue <span aria-hidden="true">·</span> Decisions, made
+          visible.</span
+        ><span>Synthetic data. Illustrative costs. Historical evaluation.</span>
+      </footer>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="case-dialog" aria-labelledby="case-title">
+      <div id="case-content"></div>
+    </dialog>
+    <dialog id="share-dialog" aria-labelledby="share-title">
+      <div class="dialog-head">
+        <h2 id="share-title">Share this scenario</h2>
+        <button
+          class="icon-button"
+          data-close
+          aria-label="Close sharing dialog"
+        >
+          ×
+        </button>
+      </div>
+      <p>
+        The link includes your policy and current view. Local review notes stay
+        in this browser.
+      </p>
+      <label class="field">Scenario URL<input id="share-url" readonly /></label
+      ><button class="button primary" data-close>Close</button>
+    </dialog>
+    <noscript
+      ><p class="noscript">
+        JavaScript is required for interactive analysis. View the
+        <a href="https://github.com/cr-shah/riskqueue"
+          >source and measured results</a
+        >.
+      </p></noscript
+    >
+  </body>
+</html>

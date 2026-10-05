@@ -7,12 +7,13 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from dashboard.queue_data import capacity_views
+
 ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_PATH = ROOT / "artifacts/figures/summary.json"
 CAPACITY_PATH = ROOT / "artifacts/figures/capacity_results.csv"
 THRESHOLD_PATH = ROOT / "artifacts/figures/threshold_policies.csv"
 SCORED_PATH = ROOT / "artifacts/figures/scored_test.csv"
-QUEUE_PATH = ROOT / "artifacts/figures/review_queue.csv"
 ERROR_PATH = ROOT / "artifacts/figures/error_analysis.csv"
 
 st.set_page_config(page_title="RiskQueue", page_icon="▦", layout="wide")
@@ -37,7 +38,6 @@ summary = json.loads(SUMMARY_PATH.read_text())
 capacity = pd.read_csv(CAPACITY_PATH)
 thresholds = pd.read_csv(THRESHOLD_PATH)
 scored = pd.read_csv(SCORED_PATH)
-queue = pd.read_csv(QUEUE_PATH)
 errors = pd.read_csv(ERROR_PATH)
 best = summary["metrics"][summary["best_model"]]
 
@@ -139,12 +139,11 @@ elif page == "Review queue":
         min(250, int(capacity.capacity.max())),
         25,
     )
-    nearest = capacity.iloc[
-        (capacity.capacity - selected_capacity).abs().argsort()[:3]
-    ].sort_values("fraud_value_capture", ascending=False)
+    scorecard, ranked_queue = capacity_views(scored, selected_capacity)
+    scorecard = scorecard.sort_values("fraud_value_capture", ascending=False)
     st.subheader("Policy scorecard")
     st.dataframe(
-        nearest[
+        scorecard[
             [
                 "strategy",
                 "capacity",
@@ -170,7 +169,20 @@ elif page == "Review queue":
         options=["critical", "high", "guarded", "low"],
         default=["critical", "high", "guarded", "low"],
     )
-    shown_queue = queue[queue.risk_band.isin(selected_bands)].head(display_count)
+    shown_queue = ranked_queue[ranked_queue.risk_band.isin(selected_bands)].head(display_count)
+    shown_queue = shown_queue[
+        [
+            "transaction_id",
+            "step",
+            "type",
+            "amount",
+            "fraud_probability",
+            "expected_loss",
+            "risk_band",
+            "rank",
+            "isFraud",
+        ]
+    ]
     st.dataframe(
         shown_queue.style.format(
             {

@@ -26,6 +26,36 @@ def test_invalid_amounts(transactions, amount):
         validate_transactions(transactions)
 
 
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("amount", "not-a-number"),
+        ("step", "not-a-step"),
+        ("step", 1.5),
+        ("step", np.iinfo(np.int64).max + 1),
+        ("isFraud", "yes"),
+        ("isFraud", 2),
+    ],
+)
+def test_malformed_numeric_values_raise_validation_error(transactions, column, value):
+    transactions[column] = transactions[column].astype(object)
+    transactions.loc[0, column] = value
+    with pytest.raises(DataValidationError, match=column):
+        validate_transactions(transactions)
+
+
+def test_numeric_strings_are_normalized(transactions):
+    transactions["amount"] = transactions.amount.astype(str)
+    transactions["step"] = transactions.step.astype(str)
+    transactions["isFraud"] = transactions.isFraud.astype(str)
+
+    result = validate_transactions(transactions)
+
+    assert result.amount.dtype.kind == "f"
+    assert result.step.dtype == np.dtype("int64")
+    assert result.isFraud.dtype == np.dtype("int64")
+
+
 def test_unknown_type(transactions):
     transactions.loc[0, "type"] = "WIRE"
     with pytest.raises(DataValidationError, match="Invalid transaction"):
