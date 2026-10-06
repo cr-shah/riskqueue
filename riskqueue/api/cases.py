@@ -19,13 +19,32 @@ from riskqueue.db.session import build_session_factory
 router = APIRouter(prefix="/v1/cases", tags=["cases"])
 
 
-def actor(authorization: Annotated[str | None, Header()] = None) -> str:
+def configured_analysts() -> dict[str, str]:
     try:
         credentials = json.loads(os.getenv("ANALYST_TOKENS", "{}"))
     except json.JSONDecodeError as exc:
-        raise HTTPException(503, "Analyst authentication is misconfigured") from exc
-    if not isinstance(credentials, dict) or not credentials:
-        raise HTTPException(503, "Analyst authentication is not configured")
+        raise ValueError("Analyst authentication is misconfigured") from exc
+    if (
+        not isinstance(credentials, dict)
+        or not credentials
+        or not all(
+            isinstance(token, str) and token and isinstance(analyst, str) and analyst
+            for token, analyst in credentials.items()
+        )
+    ):
+        raise ValueError("Analyst authentication is not configured")
+    if os.getenv("API_AUTH_REQUIRED", "false").lower() == "true" and any(
+        len(token) < 32 for token in credentials
+    ):
+        raise ValueError("Hosted analyst tokens must contain at least 32 characters")
+    return credentials
+
+
+def actor(authorization: Annotated[str | None, Header()] = None) -> str:
+    try:
+        credentials = configured_analysts()
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Bearer token required")
     supplied = authorization[7:]

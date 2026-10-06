@@ -1,0 +1,35 @@
+# Review the paid compute and database plans before creating this Blueprint.
+# The API serves an explicitly labeled demo scorer until a trained artifact is supplied.
+services:
+  - type: web
+    name: riskqueue-operator
+    runtime: docker
+    region: virginia
+    plan: 1c-2g
+    numInstances: 1
+    autoDeployTrigger: checksPass
+    preDeployCommand: python -m riskqueue.db.migrate
+    dockerCommand: sh -c 'exec uvicorn riskqueue.api.main:app --host 0.0.0.0 --port ${PORT:-10000}'
+    healthCheckPath: /ready
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: riskqueue-operator-db
+          property: connectionString
+      - key: ANALYST_TOKENS
+        sync: false
+      - key: API_AUTH_REQUIRED
+        value: "true"
+      - key: SCORING_MODE
+        value: demo
+      - key: MODEL_VERSION
+        value: demo-policy-v1
+
+databases:
+  - name: riskqueue-operator-db
+    postgresMajorVersion: "16"
+    databaseName: riskqueue
+    user: riskqueue
+    region: virginia
+    plan: 0.5c-1g
+    ipAllowList: []
