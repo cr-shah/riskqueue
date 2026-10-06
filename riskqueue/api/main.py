@@ -5,11 +5,13 @@ from pathlib import Path
 from typing import Annotated
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from riskqueue.api.cases import actor, database
+from riskqueue.api.cases import actor, configured_analysts, database
 from riskqueue.api.cases import router as cases_router
 from riskqueue.api.schemas import BatchRequest, QueueRequest, ScoreResponse, Transaction
 from riskqueue.db.session import build_session_factory
@@ -23,6 +25,23 @@ app = FastAPI(
     description="Auditable demo scoring and cost-aware analyst queue prioritization.",
 )
 app.include_router(cases_router)
+
+
+def preview_auth_required() -> bool:
+    setting = os.getenv("API_AUTH_REQUIRED", "false").lower()
+    if setting not in {"true", "false"}:
+        raise ValueError("API authentication is misconfigured")
+    return setting == "true"
+
+
+def preview_access(authorization: Annotated[str | None, Header()] = None) -> None:
+    """Keep local previews open while allowing hosted deployments to protect compute routes."""
+    try:
+        required = preview_auth_required()
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if required:
+        actor(authorization)
 
 
 @app.get("/v1/me")
@@ -78,18 +97,43 @@ def health() -> dict[str, str]:
     return {"status": "ok", "model": model.model_version}
 
 
+@app.get("/ready", include_in_schema=False)
+def ready() -> dict[str, str]:
+    """Require a usable scorer, analyst authentication, and database before routing traffic."""
+    try:
+        model = runtime_scorer()
+        preview_auth_required()
+        configured_analysts()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(503, "Operator configuration is unavailable") from exc
+    if not os.getenv("DATABASE_URL"):
+        raise HTTPException(503, "Operational database is unavailable")
+    try:
+        with build_session_factory()() as session:
+            session.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Operational database is unavailable") from exc
+    return {"status": "ready", "model": model.model_version}
+
+
 @app.post("/v1/score", response_model=ScoreResponse)
-def score(transaction: Transaction) -> ScoreResponse:
+def score(
+    transaction: Transaction, _access: Annotated[None, Depends(preview_access)]
+) -> ScoreResponse:
     return _score_batch([transaction])[0]
 
 
 @app.post("/v1/score/batch", response_model=list[ScoreResponse])
-def score_batch(request: BatchRequest) -> list[ScoreResponse]:
+def score_batch(
+    request: BatchRequest, _access: Annotated[None, Depends(preview_access)]
+) -> list[ScoreResponse]:
     return _score_batch(request.transactions)
 
 
 @app.post("/v1/review-queue")
-def review_queue(request: QueueRequest) -> list[dict]:
+def review_queue(
+    request: QueueRequest, _access: Annotated[None, Depends(preview_access)]
+) -> list[dict]:
     scored = [
         row.model_dump() | {"amount": tx.amount, "type": tx.type}
         for row, tx in zip(
@@ -116,7 +160,7 @@ def review_queue(request: QueueRequest) -> list[dict]:
 
 
 @app.get("/v1/model/metrics")
-def model_metrics() -> dict:
+def model_metrics(_access: Annotated[None, Depends(preview_access)]) -> dict:
     try:
         model = runtime_scorer()
     except (FileNotFoundError, ValueError) as exc:

@@ -24,6 +24,54 @@ def test_health():
     assert response.json()["status"] == "ok"
 
 
+def test_readiness_requires_database_and_analyst_auth(monkeypatch, tmp_path):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("ANALYST_TOKENS", raising=False)
+    assert client.get("/ready").status_code == 503
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
+    assert client.get("/ready").status_code == 503
+
+    monkeypatch.setenv("ANALYST_TOKENS", '{"test-token":"analyst"}')
+    assert client.get("/ready").json()["status"] == "ready"
+
+
+def test_readiness_rejects_unreachable_database(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'missing' / 'db.sqlite'}")
+    monkeypatch.setenv("ANALYST_TOKENS", '{"test-token":"analyst"}')
+    assert client.get("/ready").status_code == 503
+
+
+def test_public_preview_routes_require_analyst_token_when_enabled(monkeypatch):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    token = "T" * 32
+    monkeypatch.setenv("ANALYST_TOKENS", f'{{"{token}":"analyst"}}')
+    assert client.post("/v1/score", json=transaction()).status_code == 401
+    assert client.post("/v1/score/batch", json={"transactions": [transaction()]}).status_code == 401
+    assert (
+        client.post("/v1/review-queue", json={"transactions": [transaction()]}).status_code == 401
+    )
+    assert client.get("/v1/model/metrics").status_code == 401
+    response = client.post(
+        "/v1/score", json=transaction(), headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 200
+
+
+def test_hosted_readiness_rejects_short_analyst_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
+    monkeypatch.setenv("ANALYST_TOKENS", '{"short":"analyst"}')
+    assert client.get("/ready").status_code == 503
+
+
+def test_readiness_rejects_invalid_preview_auth_setting(monkeypatch, tmp_path):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "tru")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
+    monkeypatch.setenv("ANALYST_TOKENS", '{"test-token":"analyst"}')
+    assert client.get("/ready").status_code == 503
+
+
 def test_single_score_contract():
     response = client.post("/v1/score", json=transaction())
     assert response.status_code == 200

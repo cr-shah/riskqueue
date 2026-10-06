@@ -5,6 +5,15 @@ from sqlalchemy.orm import Session
 
 from riskqueue.db.logging import log_prediction
 from riskqueue.db.models import Base, ModelVersion, PredictionEvent
+from riskqueue.db.session import normalize_database_url
+
+
+def test_render_postgres_url_uses_installed_psycopg_driver():
+    assert (
+        normalize_database_url("postgresql://user:secret@db.internal:5432/riskqueue")
+        == "postgresql+psycopg://user:secret@db.internal:5432/riskqueue"
+    )
+    assert normalize_database_url("sqlite+pysqlite:///:memory:") == "sqlite+pysqlite:///:memory:"
 
 
 def test_prediction_is_persisted_with_model_reference():

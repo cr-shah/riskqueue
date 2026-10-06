@@ -10,6 +10,8 @@ The application combines **AWS S3, Lambda, SQS, a containerized Python worker, P
 
 The website uses dependency-free JavaScript, semantic HTML, CSS, and interactive SVG charts, with a Python snapshot builder and GitHub Actions deployment. See [website architecture, testing, and publishing](docs/WEBSITE.md).
 
+The separate analyst API has a [Render deployment blueprint and operator rollout guide](docs/DEPLOY_OPERATOR.md). Creating the hosting resources, setting analyst tokens, and verifying a deployed investigation remain explicit deployment steps; the GitHub Pages site does not expose operational data.
+
 ![RiskQueue generated dashboard overview](artifacts/figures/dashboard_overview.png)
 
 > [!IMPORTANT]
