@@ -42,6 +42,10 @@ class ScoreResponse(BaseModel):
     risk_band: str
     decision: str
     model_version: str
+    feature_version: str
+    scored_at: str
+    score_kind: str
+    policy_version: str
 
 
 class QueueRequest(BatchRequest):

@@ -6,7 +6,7 @@ RiskQueue is a cloud-ready transaction risk and fraud-operations system. It pres
 
 The application combines **AWS S3, Lambda, SQS, a containerized Python worker, PostgreSQL, Snowflake, Prefect, FastAPI, Streamlit, Terraform, scikit-learn, and XGBoost-ready modeling**.
 
-**[Open the interactive RiskQueue workspace](https://cr-shah.github.io/riskqueue/)** — responsive capacity planning, scenario comparison, a filterable review queue, case explanations, calibrated model diagnostics, and reproducible CSV/JSON exports. The public website uses a historical synthetic snapshot; cloud operations remain separate.
+**[Open the interactive RiskQueue workspace](https://cr-shah.github.io/riskqueue/)** — responsive capacity planning, scenario comparison, a filterable review queue, case explanations, calibrated model diagnostics, and reproducible CSV/JSON exports. This public GitHub Pages site uses a historical synthetic snapshot. The authenticated operational interface is served separately by FastAPI at `/operator` when an API and database are deployed.
 
 The website uses dependency-free JavaScript, semantic HTML, CSS, and interactive SVG charts, with a Python snapshot builder and GitHub Actions deployment. See [website architecture, testing, and publishing](docs/WEBSITE.md).
 
@@ -111,10 +111,10 @@ The worker:
 2. checks PostgreSQL for an existing event ID;
 3. retrieves the raw object;
 4. validates the inference transaction contract;
-5. builds the existing chronological behavioral features;
-6. uses a configured model artifact or deterministic development scorer;
+5. builds chronological behavioral features from the incoming rows and previously committed transactions for involved entities;
+6. uses the shared API/worker scoring pipeline with a configured model artifact or explicit development mode;
 7. calculates expected loss and queue priority;
-8. writes operational transaction and review state;
+8. claims available daily capacity transactionally, retaining overflow as backlog, and creates cases;
 9. incrementally merges analytical scoring history into Snowflake when enabled;
 10. commits the processed-event marker and deletes the SQS message.
 
@@ -153,14 +153,14 @@ PostgreSQL remains the application database. It stores:
 - prediction audit events;
 - processed event and idempotency records;
 - current operational transaction scores;
-- analyst review queue state;
-- review rank and status.
+- analyst review queue state, daily capacity periods, and backlog;
+- immutable score context, feature snapshots, cases, notes, outcomes, and audit events.
 
-FastAPI, Streamlit, and analyst workflows should use PostgreSQL for low-latency operational reads and writes.
+FastAPI and the analyst workflow use PostgreSQL for operational reads and writes. Packaged Alembic migrations in `riskqueue/migrations/` upgrade the legacy `sql/schema.sql` schema in place and create fresh databases.
 
 ### Snowflake: analytical OLAP history
 
-Snowflake stores append-oriented historical and aggregate data:
+Snowflake stores analytical scoring history and aggregate data:
 
 - event and transaction scoring history;
 - model version history attached to scores;
@@ -224,6 +224,10 @@ FastAPI provides:
 - `POST /v1/score/batch`
 - `POST /v1/review-queue`
 - `GET /v1/model/metrics`
+- `GET /operator` and authenticated `/v1/cases` investigation, note, disposition, and outcome routes;
+- authenticated `POST /v1/replay` for chronological policy comparisons.
+
+See [operational workflows and migration setup](docs/OPERATIONS.md). The operator page needs a running FastAPI service, PostgreSQL, and configured analyst tokens; GitHub Pages cannot host these server-side capabilities.
 
 The six-view Streamlit dashboard covers executive results, model performance, analyst queues, decision policy, explainability, and monitoring.
 
@@ -250,7 +254,10 @@ Run the quality gates:
 ```bash
 uv sync --extra dev
 uv run ruff check .
+uv run ruff format --check .
 uv run pytest --cov=riskqueue --cov-report=term-missing
+npm run format:check && npm run lint && npm run typecheck && npm test && npm run build
+npm run test:e2e
 ```
 
 ## Local setup
@@ -272,13 +279,14 @@ uv run streamlit run dashboard/app.py
 Run the API:
 
 ```bash
+uv run python -m riskqueue.db.migrate
 uv run uvicorn riskqueue.api.main:app --reload
 ```
 
-Run PostgreSQL, the API, and the dashboard without an AWS or Snowflake account:
+Run PostgreSQL, migrations, the API, and the dashboard without an AWS or Snowflake account:
 
 ```bash
-docker compose up --build postgres api dashboard
+docker compose up --build postgres migrate api dashboard
 ```
 
 The local object store defaults to `data/raw-events/`. Snowflake is disabled unless `SNOWFLAKE_ENABLED=true`.
@@ -295,7 +303,7 @@ docker compose --profile cloud up --build worker
 
 - AWS credentials supplied by an IAM role, AWS SSO, or the standard AWS credential chain;
 - Terraform 1.6 or later;
-- a PostgreSQL database initialized with `sql/schema.sql`;
+- a PostgreSQL database upgraded with `alembic upgrade head` (also supported from the legacy `sql/schema.sql` installation);
 - a built Lambda deployment package;
 - optional Snowflake credentials supplied through environment variables or a secret manager.
 
@@ -373,13 +381,14 @@ Important environment variables are documented in [`.env.example`](.env.example)
 | `riskqueue/db/` | SQLAlchemy operational models and sessions |
 | `dashboard/` | Six-view Streamlit application |
 | `infra/terraform/` | AWS S3, Lambda, SQS, DLQ, and IAM infrastructure |
-| `sql/schema.sql` | PostgreSQL operational schema |
+| `sql/schema.sql` | Legacy PostgreSQL baseline schema; use Alembic for new installs and upgrades |
+| `riskqueue/migrations/` | Packaged, versioned operational schema migrations |
 | `sql/snowflake_schema.sql` | Snowflake analytical schema and aggregates |
 | `tests/` | Local deterministic unit and integration tests |
 
 ## Limitations
 
-The checked-in results use synthetic data. Historical features are batch-computed rather than maintained in an online feature store. The development API scorer remains deterministic when a trained model artifact is not configured. The project does not provision PostgreSQL, Snowflake, or the worker compute platform through the included AWS module. Costs, review capacity, and loss fraction are illustrative and must be validated for a real deployment.
+The checked-in results use synthetic data. Live historical features read committed history for entities in the incoming batch; prolific entities can make this costly because exact lifetime medians require their full prior amount history. The development scorer is deterministic and identified as a heuristic; set `SCORING_MODE=trained` and a versioned artifact for a trained model. Replay compares policies over stored scores from one model/feature version; it does not rescore alternative model versions. Outcomes are known only for investigated cases, so replay does not claim unbiased recall or prevented value. The included AWS module does not provision PostgreSQL, Snowflake, or worker compute. Costs, review capacity, and loss fraction are illustrative and require validation for a real deployment.
 
 ## Data attribution
 
