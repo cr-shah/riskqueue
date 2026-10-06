@@ -123,6 +123,7 @@ def test_concurrent_postgres_allocation_is_globally_bounded(postgres_database):
                 transaction_count=2,
             )
         )
+        session.flush()
         session.add(CapacityPeriod(period_date=now.date(), budget=1, consumed=0))
         for index in range(2):
             identifier = f"tx-{index}"
