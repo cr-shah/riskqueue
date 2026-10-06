@@ -1,5 +1,7 @@
 from riskqueue.config import LEAKAGE_COLUMNS
 
+FEATURE_VERSION = "behavioral-v1"
+
 STATIC_FEATURES = ["amount", "hour", "day_index"]
 BEHAVIORAL_FEATURES = [
     "sender_count_1h",

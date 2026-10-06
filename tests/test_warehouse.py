@@ -57,6 +57,9 @@ def test_snowflake_sink_uses_incremental_merge():
 
     assert warehouse.merge_scoring_history([row]) == 1
     assert any("MERGE INTO" in sql for sql in connection.cursor_value.executed)
+    merge_sql = next(sql for sql in connection.cursor_value.executed if "MERGE INTO" in sql)
+    assert "WHEN MATCHED THEN UPDATE SET" in merge_sql
+    assert "target.DECISION = source.DECISION" in merge_sql
     assert connection.committed
     assert connection.closed
 

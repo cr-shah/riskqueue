@@ -13,4 +13,30 @@ jobs:
           cache: pip
       - run: pip install -e '.[dev]'
       - run: ruff check .
+      - run: ruff format --check .
       - run: pytest --cov=riskqueue --cov-report=term-missing
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: riskqueue_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://postgres@localhost:5432/riskqueue_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: pytest -q integration/test_postgres.py

@@ -25,9 +25,7 @@ def main() -> None:
         train_logistic(split.train, split.train.isFraud),
         train_boosted(split.train, split.train.isFraud),
     ]
-    base_validation = {
-        model.name: model.predict_proba(split.validation) for model in base_models
-    }
+    base_validation = {model.name: model.predict_proba(split.validation) for model in base_models}
     selected_base = max(
         base_models,
         key=lambda model: average_precision_score(
@@ -64,6 +62,7 @@ def main() -> None:
         metrics["roc_auc"],
         metrics["brier"],
         summary["selected_threshold"],
+        score_kind="calibrated_probability",
     )
     save_artifact(best, metadata, Path("artifacts/models"))
     print(f"Saved {best.name}; held-out AP={metrics['average_precision']:.4f}")

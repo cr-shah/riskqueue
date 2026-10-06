@@ -94,6 +94,8 @@ class SnowflakeWarehouse:
                 USING {stage} source
                   ON target.EVENT_ID = source.EVENT_ID
                  AND target.TRANSACTION_ID = source.TRANSACTION_ID
+                WHEN MATCHED THEN UPDATE SET
+                    {", ".join(f"target.{column} = source.{column}" for column in self.COLUMNS if column not in {"EVENT_ID", "TRANSACTION_ID"})}
                 WHEN NOT MATCHED THEN INSERT ({", ".join(self.COLUMNS)})
                 VALUES ({", ".join(f"source.{column}" for column in self.COLUMNS)})
                 """  # noqa: S608

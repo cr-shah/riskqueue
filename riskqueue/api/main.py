@@ -1,55 +1,102 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI
+import pandas as pd
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
 
+from riskqueue.api.cases import actor, database
+from riskqueue.api.cases import router as cases_router
 from riskqueue.api.schemas import BatchRequest, QueueRequest, ScoreResponse, Transaction
-from riskqueue.scoring import demo_probability, risk_band
+from riskqueue.db.session import build_session_factory
+from riskqueue.replay import ReplayRequest, replay
+from riskqueue.scoring import risk_band, runtime_scorer
+from riskqueue.scoring_pipeline import score_transactions
 
 app = FastAPI(
     title="RiskQueue API",
     version="0.1.0",
     description="Auditable demo scoring and cost-aware analyst queue prioritization.",
 )
+app.include_router(cases_router)
 
 
-def _score(
-    tx: Transaction, loss_fraction: float = 1.0, manual_review_cost: float = 4.0
-) -> ScoreResponse:
-    probability = demo_probability(tx.transaction_id, tx.step, tx.type, tx.amount)
-    loss = probability * tx.amount * loss_fraction
-    return ScoreResponse(
-        transaction_id=tx.transaction_id,
-        fraud_probability=round(probability, 6),
-        expected_loss=round(loss, 2),
-        risk_band=risk_band(probability),
-        decision="review" if loss > manual_review_cost else "approve",
-        model_version=os.getenv("MODEL_VERSION", "demo-policy-v1"),
-    )
+@app.get("/v1/me")
+def current_analyst(analyst: Annotated[str, Depends(actor)]) -> dict[str, str]:
+    return {"analyst": analyst}
+
+
+@app.get("/operator", include_in_schema=False)
+def operator_workspace() -> FileResponse:
+    return FileResponse(Path(__file__).with_name("operator.html"), media_type="text/html")
+
+
+def _score_batch(
+    transactions: list[Transaction], loss_fraction: float = 1.0, manual_review_cost: float = 4.0
+) -> list[ScoreResponse]:
+    frame = pd.DataFrame([tx.model_dump() for tx in transactions])
+    try:
+        if os.getenv("DATABASE_URL"):
+            with build_session_factory()() as session:
+                _, result = score_transactions(frame, scorer=runtime_scorer(), session=session)
+        else:
+            _, result = score_transactions(frame, scorer=runtime_scorer())
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [
+        ScoreResponse(
+            transaction_id=tx.transaction_id,
+            fraud_probability=round(float(result.probabilities[index]), 6),
+            expected_loss=round(float(result.probabilities[index]) * tx.amount * loss_fraction, 2),
+            risk_band=risk_band(float(result.probabilities[index])),
+            decision=(
+                "review"
+                if float(result.probabilities[index]) * tx.amount * loss_fraction
+                > manual_review_cost
+                else "approve"
+            ),
+            model_version=result.model_version,
+            feature_version=result.feature_version,
+            scored_at=result.scored_at.isoformat(),
+            score_kind=result.score_kind,
+            policy_version="api-preview-v1",
+        )
+        for index, tx in enumerate(transactions)
+    ]
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "model": os.getenv("MODEL_VERSION", "demo-policy-v1")}
+    try:
+        model = runtime_scorer()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"status": "ok", "model": model.model_version}
 
 
 @app.post("/v1/score", response_model=ScoreResponse)
 def score(transaction: Transaction) -> ScoreResponse:
-    return _score(transaction)
+    return _score_batch([transaction])[0]
 
 
 @app.post("/v1/score/batch", response_model=list[ScoreResponse])
 def score_batch(request: BatchRequest) -> list[ScoreResponse]:
-    return [_score(tx) for tx in request.transactions]
+    return _score_batch(request.transactions)
 
 
 @app.post("/v1/review-queue")
 def review_queue(request: QueueRequest) -> list[dict]:
     scored = [
-        _score(tx, request.loss_fraction, request.manual_review_cost).model_dump()
-        | {"amount": tx.amount, "type": tx.type}
-        for tx in request.transactions
+        row.model_dump() | {"amount": tx.amount, "type": tx.type}
+        for row, tx in zip(
+            _score_batch(request.transactions, request.loss_fraction, request.manual_review_cost),
+            request.transactions,
+            strict=True,
+        )
     ]
     key = {
         "probability": "fraud_probability",
@@ -70,8 +117,25 @@ def review_queue(request: QueueRequest) -> list[dict]:
 
 @app.get("/v1/model/metrics")
 def model_metrics() -> dict:
+    try:
+        model = runtime_scorer()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(503, str(exc)) from exc
     return {
-        "model_version": os.getenv("MODEL_VERSION", "demo-policy-v1"),
-        "status": "demo",
-        "notice": "Run scripts/run_demo.py or the PaySim training pipeline for measured metrics.",
+        "model_version": model.model_version,
+        "feature_version": model.feature_version,
+        "status": "development_heuristic" if model.model is None else "configured_model",
+        "notice": "Measured metrics must come from the evaluation artifact for this exact model version.",
     }
+
+
+@app.post("/v1/replay")
+def replay_policies(
+    request: ReplayRequest,
+    _analyst: Annotated[str, Depends(actor)],
+    session: Annotated[Session, Depends(database)],
+) -> dict:
+    try:
+        return replay(session, request)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import joblib
 
+from riskqueue.features.schema import FEATURE_VERSION
+
 
 @dataclass(frozen=True)
 class ModelMetadata:
@@ -17,6 +19,8 @@ class ModelMetadata:
     roc_auc: float
     brier: float
     decision_threshold: float
+    feature_version: str = FEATURE_VERSION
+    score_kind: str = "model_probability"
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
