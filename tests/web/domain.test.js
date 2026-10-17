@@ -5,6 +5,7 @@ import {
   DEFAULT_POLICY,
   auditSnapshot,
   buildQueue,
+  compareSelections,
   demoScore,
   evaluate,
   normalizePolicy,
@@ -63,6 +64,35 @@ test("capacity is exact and stable at arbitrary values, including zero", () => {
       capacity: data.transactions.length,
     }).valueCapture,
     1,
+  );
+});
+test("scenario movement counts only cases that enter or leave the selected queue", () => {
+  const baseline = {
+    ...DEFAULT_POLICY,
+    strategy: "probability",
+    capacity: 250,
+  };
+  const alternative = { ...DEFAULT_POLICY, capacity: 250 };
+  const movement = compareSelections(data.transactions, baseline, alternative);
+  assert.ok(movement.added.length > 0);
+  assert.equal(movement.added.length, movement.removed.length);
+  assert.equal(movement.shared + movement.added.length, 250);
+  assert.equal(movement.shared + movement.removed.length, 250);
+  assert.equal(
+    compareSelections(data.transactions, baseline, baseline).added.length,
+    0,
+  );
+  assert.equal(
+    compareSelections(data.transactions, baseline, baseline).removed.length,
+    0,
+  );
+  assert.ok(
+    movement.added.every(
+      (row) =>
+        !movement.removed.some(
+          (other) => other.transaction_id === row.transaction_id,
+        ),
+    ),
   );
 });
 test("policy costs and loss fractions change values but preserve fixed-cost ranking", () => {
