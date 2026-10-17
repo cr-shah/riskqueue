@@ -71,6 +71,44 @@ test("scenario baseline, reproducible exports, and share URL survive reload", as
     "750 capacity",
   );
 });
+test("scenario capacity and ranking reveal queue movement with inspectable cases", async ({
+  page,
+}) => {
+  await page.goto("./#scenarios");
+  const capacity = page.getByRole("slider", {
+    name: "Alternative review capacity",
+  });
+  await expect(capacity).toHaveValue("250");
+  await capacity.fill("100");
+  await expect(page.locator("#policy-capacity")).toHaveValue("100");
+  await expect(page.locator("#scenario-capacity-value")).toHaveText("100");
+  await expect(
+    page.getByRole("region", { name: "Queue movement" }),
+  ).toContainText("Only in B");
+  await page
+    .getByRole("button", { name: "Fraud probability", exact: true })
+    .click();
+  await expect(page.locator("#policy-strategy")).toHaveValue("probability");
+  const removed = page.locator('[data-case-source="baseline"]').first();
+  await expect(removed).toBeVisible();
+  const removedId = await removed.getAttribute("data-case");
+  await removed.click();
+  await expect(page.locator("#case-dialog")).toContainText("A / Baseline");
+  const evidenceDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export case evidence" }).click();
+  const stream = await (await evidenceDownload).createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const evidence = JSON.parse(Buffer.concat(chunks).toString());
+  expect(evidence.case.transaction_id).toBe(removedId);
+  expect(evidence.policy.capacity).toBe(250);
+  expect(evidence.policy.strategy).toBe("probability");
+  await page.keyboard.press("Escape");
+  await expect(removed).toBeFocused();
+  await page.reload();
+  await expect(capacity).toHaveValue("100");
+  await expect(page.locator("#policy-strategy")).toHaveValue("probability");
+});
 test("development lab calculates without network scoring and displays exact contributions", async ({
   page,
 }) => {

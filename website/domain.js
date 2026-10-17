@@ -114,6 +114,19 @@ export function evaluate(rows, policy) {
   };
 }
 
+/** Compare selection membership without using outcome labels to choose cases. @param {Transaction[]} rows @param {Policy} baseline @param {Policy} alternative */
+export function compareSelections(rows, baseline, alternative) {
+  const first = buildQueue(rows, baseline);
+  const second = buildQueue(rows, alternative);
+  const firstIds = new Set(first.map((row) => row.transaction_id));
+  const secondIds = new Set(second.map((row) => row.transaction_id));
+  return {
+    shared: first.filter((row) => secondIds.has(row.transaction_id)).length,
+    added: second.filter((row) => !firstIds.has(row.transaction_id)),
+    removed: first.filter((row) => !secondIds.has(row.transaction_id)),
+  };
+}
+
 /** @param {URLSearchParams} params @param {number} length */
 export function policyFromParams(params, length) {
   return normalizePolicy(

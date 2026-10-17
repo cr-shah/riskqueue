@@ -5,6 +5,7 @@ import {
   auditSnapshot,
   calibrationBins,
   captureCurve,
+  compareSelections,
   demoScore,
   evaluate,
   normalizePolicy,
@@ -46,6 +47,7 @@ let showLoss = true,
 /** @type {Record<string,{status:string,note:string}>} */
 let notes = {};
 let activeCase = "";
+let activeCaseSource = "alternative";
 let toastTimer = 0;
 /** @param {string} id @returns {HTMLElement} */
 function el(id) {
@@ -225,7 +227,14 @@ function queueContent() {
 }
 
 function scenarioShell() {
-  return `${heading("What if you changed the policy?", "Compare a baseline with an alternative on the same held-out transactions.", exportButton + '<button class="button primary" data-action="freeze-baseline">Use current as baseline <span aria-hidden="true">←</span></button>')}${policyControls()}<div id="page-content"></div>`;
+  return `${heading("What if you changed the policy?", "Compare a baseline with an alternative on the same held-out transactions.", exportButton + '<button class="button primary" data-action="freeze-baseline">Use current as baseline <span aria-hidden="true">←</span></button>')}${policyControls()}<section class="panel scenario-tuner" aria-label="Live scenario controls"><div><span class="small-label">LIVE POLICY EXPLORER</span><h2>Move the review boundary.</h2><p>Drag capacity or switch ranking to see which cases enter and leave the queue.</p></div><div class="scenario-tuner-controls"><div class="scenario-range"><label for="scenario-capacity">Alternative review capacity</label><div class="scenario-range-track"><button class="button small" data-capacity-step="-25" aria-label="Decrease alternative capacity by 25">−25</button><input id="scenario-capacity" type="range" min="0" max="${data.transactions.length}" step="1" value="${policy.capacity}"/><button class="button small" data-capacity-step="25" aria-label="Increase alternative capacity by 25">+25</button><output id="scenario-capacity-value" for="scenario-capacity">${policy.capacity}</output></div></div><div class="strategy-switch" role="group" aria-label="Alternative ranking strategy">${Object.entries(
+    STRATEGIES,
+  )
+    .map(
+      ([value, label]) =>
+        `<button class="button small" data-strategy="${value}" aria-pressed="${policy.strategy === value}">${label}</button>`,
+    )
+    .join("")}</div></div></section><div id="page-content"></div>`;
 }
 
 /** @param {Policy} p @param {string} label @param {boolean} active */
@@ -237,8 +246,46 @@ function scenarioCard(p, label, active) {
 function scenariosContent() {
   const a = evaluate(data.transactions, baseline),
     b = evaluate(data.transactions, policy);
+  const movement = compareSelections(data.transactions, baseline, policy);
   const delta = (b.valueCapture - a.valueCapture) * 100;
-  return `<div class="delta-banner"><strong>${delta >= 0 ? "+" : ""}${delta.toFixed(1)} pp</strong><p><b>Change in fraud value capture.</b><br/>The alternative costs ${money(Math.abs(b.modeledCost - a.modeledCost))} ${b.modeledCost <= a.modeledCost ? "less" : "more"} in this retrospective model.</p></div><div class="equal-columns">${scenarioCard(baseline, "A / Baseline", false)}${scenarioCard(policy, "B / Alternative", true)}</div><div class="callout"><strong>Keep the assumptions visible.</strong> Modeled cost assumes that reviewing a fraudulent transaction prevents its full loss fraction. Actual investigation and recovery rates are not measured here. Capture uses the full labeled fraud value denominator, even when a threshold excludes transactions.</div><section class="panel">${panelHead("Choose a useful starting point.", "These presets change the alternative. The baseline stays fixed.")}<div class="pill-row"><button class="button" data-preset="focused">Focused · 100 reviews</button><button class="button" data-preset="balanced">Balanced · 250 reviews</button><button class="button" data-preset="coverage">Coverage · 750 reviews</button><button class="button" data-preset="threshold">Validation threshold · ${data.summary.selected_threshold}</button><button class="button subtle" data-action="reset-policy">Reset alternative</button></div><p class="fine-print">At a fixed cost and loss fraction, expected loss and net review value give the same ordering. Net review value subtracts review cost; this top-k queue can include cases with negative net value. Add a minimum probability to restrict eligibility.</p></section>`;
+  return `<div class="delta-banner"><strong>${delta >= 0 ? "+" : ""}${delta.toFixed(1)} pp</strong><p><b>Change in fraud value capture.</b><br/>The alternative costs ${money(Math.abs(b.modeledCost - a.modeledCost))} ${b.modeledCost <= a.modeledCost ? "less" : "more"} in this retrospective model.</p></div><div class="equal-columns">${scenarioCard(baseline, "A / Baseline", false)}${scenarioCard(policy, "B / Alternative", true)}</div><section class="panel movement-panel" role="region" aria-label="Queue movement">${panelHead("See the queue change.", "Selection changes are computed from scores and policy rules; historical labels never choose a case.", '<span class="tag">SAME HELD-OUT COHORT</span>')}<div class="movement-stats"><div><strong>${count(movement.shared)}</strong><span>In both queues</span></div><div><strong>${count(movement.added.length)}</strong><span>Only in B</span></div><div><strong>${count(movement.removed.length)}</strong><span>Only in A</span></div></div><div class="movement-columns">${movementList(movement.added, "Only in B / Alternative", "alternative")}${movementList(movement.removed, "Only in A / Baseline", "baseline")}</div></section><div class="callout"><strong>Keep the assumptions visible.</strong> Modeled cost assumes that reviewing a fraudulent transaction prevents its full loss fraction. Actual investigation and recovery rates are not measured here. Capture uses the full labeled fraud value denominator, even when a threshold excludes transactions.</div><section class="panel">${panelHead("Choose a useful starting point.", "These presets change the alternative. The baseline stays fixed.")}<div class="pill-row"><button class="button" data-preset="focused">Focused · 100 reviews</button><button class="button" data-preset="balanced">Balanced · 250 reviews</button><button class="button" data-preset="coverage">Coverage · 750 reviews</button><button class="button" data-preset="threshold">Validation threshold · ${data.summary.selected_threshold}</button><button class="button subtle" data-action="reset-policy">Reset alternative</button></div><p class="fine-print">At a fixed cost and loss fraction, expected loss and net review value give the same ordering. Net review value subtracts review cost; this top-k queue can include cases with negative net value. Add a minimum probability to restrict eligibility.</p></section>`;
+}
+
+/** @param {Case[]} rows @param {string} title @param {string} source */
+function movementList(rows, title, source) {
+  return `<div class="movement-list"><h3>${title}</h3>${
+    rows.length
+      ? `<p>${count(rows.length)} ${rows.length === 1 ? "case" : "cases"} selected here. Showing the first three by this queue's rank.</p><ol>${rows
+          .slice(0, 3)
+          .map(
+            (row) =>
+              `<li><button class="movement-case" data-case="${escape(row.transaction_id)}" data-case-source="${source}" aria-label="Inspect ${escape(row.transaction_id)} in ${source === "baseline" ? "baseline" : "alternative"}"><span class="mono">#${row.rank} · ${escape(row.transaction_id)}</span><span>${pct(row.fraud_probability)} score · ${money(row.expected_loss)} modeled exposure <span aria-hidden="true">↗</span></span></button></li>`,
+          )
+          .join("")}</ol>`
+      : '<p class="movement-empty">No unique cases at these settings. Try another capacity or ranking strategy.</p>'
+  }</div>`;
+}
+
+function syncScenarioControls() {
+  if (page !== "scenarios") return;
+  input("scenario-capacity").value = String(policy.capacity);
+  el("scenario-capacity-value").textContent = String(policy.capacity);
+  el("main")
+    .querySelectorAll("[data-strategy]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.getAttribute("data-strategy") === policy.strategy),
+      ),
+    );
+}
+
+/** @param {number} capacity */
+function setScenarioCapacity(capacity) {
+  policy = normalizePolicy({ ...policy, capacity }, data.transactions.length);
+  input("policy-capacity").value = String(policy.capacity);
+  updateURL();
+  renderContent();
 }
 
 /** @param {{x:number,y:number}[]} points @param {string} label @param {string} xLabel @param {string} yLabel @param {number} [limit] */
@@ -364,18 +411,21 @@ function renderContent() {
   else if (page === "scenarios") target.innerHTML = scenariosContent();
   else if (page === "models") target.innerHTML = modelsContent();
   else if (page === "evidence") target.innerHTML = evidenceContent();
+  syncScenarioControls();
 }
 
-/** @param {string} id */
-function openCase(id) {
-  const row = evaluate(data.transactions, policy).queue.find(
+/** @param {string} id @param {string} [source] */
+function openCase(id, source = "alternative") {
+  const casePolicy = source === "baseline" ? baseline : policy;
+  const row = evaluate(data.transactions, casePolicy).queue.find(
     (r) => r.transaction_id === id,
   );
   if (!row) return;
   activeCase = id;
+  activeCaseSource = source;
   const note = notes[id] ?? { status: "unreviewed", note: "" };
   el("case-content").innerHTML =
-    `<div class="dialog-head"><div><div class="eyebrow">CASE EVIDENCE / RANK ${row.rank}</div><h2 id="case-title">${escape(id)}</h2><p>${escape(row.type.replaceAll("_", " "))} · Event hour ${row.step} · Synthetic evaluation</p></div><button class="icon-button" data-close aria-label="Close case details">×</button></div><div class="dialog-kpis">${kpi("AMOUNT", money(row.amount, 2), "Transaction exposure")}${kpi("PROBABILITY", pct(row.fraud_probability), "Calibrated model score")}${kpi("EXPECTED LOSS", money(row.expected_loss, 2), `${pct(policy.lossFraction, 0)} loss fraction`, true)}</div><section class="dialog-section"><h3>Why this case is in the queue</h3><p>Rank ${row.rank} by ${escape(STRATEGIES[policy.strategy].toLowerCase())}. Its score meets the ${pct(policy.threshold)} eligibility threshold, and it fits within the ${policy.capacity}-review capacity.</p><div class="formula">${pct(row.fraud_probability, 3)} × ${money(row.amount, 2)} × ${policy.lossFraction}<br/>= ${money(row.expected_loss, 2)} expected loss<br/>− ${money(policy.reviewCost, 2)} review cost<br/>= ${money(row.expected_review_value, 2)} net review value</div></section><section class="dialog-section"><h3>Observed historical context</h3><dl class="detail-grid"><div><dt>AMOUNT / PRIOR SENDER MEDIAN</dt><dd>${row.amount_to_sender_median.toFixed(2)}×</dd></div><div><dt>SENDER TRANSACTIONS / 24H</dt><dd>${row.sender_count_24h}</dd></div><div><dt>FIRST-TIME RECIPIENT</dt><dd>${row.first_time_recipient ? "Yes" : "No"}</dd></div><div><dt>RECIPIENT DISTINCT SENDERS / 24H</dt><dd>${row.recipient_unique_senders_24h}</dd></div></dl><p>These are history-only model inputs, not measured feature contributions or causal explanations.</p><details class="chart-data"><summary>Reveal historical outcome (evaluation only)</summary><p>Known label: <strong>${row.isFraud ? "Fraud" : "Not fraud"}</strong>. Labels evaluate policies and never influence ranking.</p></details></section><section class="dialog-section"><h3>Your local review record</h3><form id="note-form"><div class="form-grid"><label class="field">Review status<select id="case-status">${["unreviewed", "investigating", "resolved"].map((s) => `<option${note.status === s ? " selected" : ""}>${s}</option>`).join("")}</select></label><label class="field span-two">Analyst note<textarea id="case-note" maxlength="2000" placeholder="Record an observation about this synthetic case…">${escape(note.note)}</textarea></label></div><div class="dialog-actions"><button class="button primary" type="submit">Save local review</button><button class="button" type="button" data-action="export-case">Export case evidence ↓</button></div><p class="fine-print">Saved only in this browser. This does not update the backend or change financial decisions.</p></form></section>`;
+    `<div class="dialog-head"><div><div class="eyebrow">CASE EVIDENCE / ${source === "baseline" ? "A / Baseline" : page === "scenarios" ? "B / Alternative" : "Current policy"} / RANK ${row.rank}</div><h2 id="case-title">${escape(id)}</h2><p>${escape(row.type.replaceAll("_", " "))} · Event hour ${row.step} · Synthetic evaluation</p></div><button class="icon-button" data-close aria-label="Close case details">×</button></div><div class="dialog-kpis">${kpi("AMOUNT", money(row.amount, 2), "Transaction exposure")}${kpi("PROBABILITY", pct(row.fraud_probability), "Calibrated model score")}${kpi("EXPECTED LOSS", money(row.expected_loss, 2), `${pct(casePolicy.lossFraction, 0)} loss fraction`, true)}</div><section class="dialog-section"><h3>Why this case is in the queue</h3><p>Rank ${row.rank} by ${escape(STRATEGIES[casePolicy.strategy].toLowerCase())}. Its score meets the ${pct(casePolicy.threshold)} eligibility threshold, and it fits within the ${casePolicy.capacity}-review capacity.</p><div class="formula">${pct(row.fraud_probability, 3)} × ${money(row.amount, 2)} × ${casePolicy.lossFraction}<br/>= ${money(row.expected_loss, 2)} expected loss<br/>− ${money(casePolicy.reviewCost, 2)} review cost<br/>= ${money(row.expected_review_value, 2)} net review value</div></section><section class="dialog-section"><h3>Observed historical context</h3><dl class="detail-grid"><div><dt>AMOUNT / PRIOR SENDER MEDIAN</dt><dd>${row.amount_to_sender_median.toFixed(2)}×</dd></div><div><dt>SENDER TRANSACTIONS / 24H</dt><dd>${row.sender_count_24h}</dd></div><div><dt>FIRST-TIME RECIPIENT</dt><dd>${row.first_time_recipient ? "Yes" : "No"}</dd></div><div><dt>RECIPIENT DISTINCT SENDERS / 24H</dt><dd>${row.recipient_unique_senders_24h}</dd></div></dl><p>These are history-only model inputs, not measured feature contributions or causal explanations.</p><details class="chart-data"><summary>Reveal historical outcome (evaluation only)</summary><p>Known label: <strong>${row.isFraud ? "Fraud" : "Not fraud"}</strong>. Labels evaluate policies and never influence ranking.</p></details></section><section class="dialog-section"><h3>Your local review record</h3><form id="note-form"><div class="form-grid"><label class="field">Review status<select id="case-status">${["unreviewed", "investigating", "resolved"].map((s) => `<option${note.status === s ? " selected" : ""}>${s}</option>`).join("")}</select></label><label class="field span-two">Analyst note<textarea id="case-note" maxlength="2000" placeholder="Record an observation about this synthetic case…">${escape(note.note)}</textarea></label></div><div class="dialog-actions"><button class="button primary" type="submit">Save local review</button><button class="button" type="button" data-action="export-case">Export case evidence ↓</button></div><p class="fine-print">Saved only in this browser. This does not update the backend or change financial decisions.</p></form></section>`;
   /** @type {HTMLDialogElement} */ (el("case-dialog")).showModal();
 }
 
@@ -419,9 +469,27 @@ document.addEventListener("click", (event) => {
   }
   if (!data) return;
   if (target.hasAttribute("data-case"))
-    openCase(target.getAttribute("data-case") ?? "");
+    openCase(
+      target.getAttribute("data-case") ?? "",
+      target.getAttribute("data-case-source") ?? "alternative",
+    );
   if (target.hasAttribute("data-capacity"))
     chartCapacity(Number(target.getAttribute("data-capacity")));
+  if (target.hasAttribute("data-capacity-step"))
+    setScenarioCapacity(
+      policy.capacity + Number(target.getAttribute("data-capacity-step")),
+    );
+  if (target.hasAttribute("data-strategy")) {
+    policy = {
+      ...policy,
+      strategy: /** @type {import('./domain.js').Strategy} */ (
+        target.getAttribute("data-strategy")
+      ),
+    };
+    input("policy-strategy").value = policy.strategy;
+    updateURL();
+    renderContent();
+  }
   if (target.hasAttribute("data-type")) {
     typeFilter = target.getAttribute("data-type") ?? "all";
     queuePage = 1;
@@ -510,7 +578,8 @@ document.addEventListener("click", (event) => {
     render();
   }
   if (action === "export-case") {
-    const row = evaluate(data.transactions, policy).queue.find(
+    const casePolicy = activeCaseSource === "baseline" ? baseline : policy;
+    const row = evaluate(data.transactions, casePolicy).queue.find(
       (r) => r.transaction_id === activeCase,
     );
     download(
@@ -518,7 +587,7 @@ document.addEventListener("click", (event) => {
       JSON.stringify(
         {
           provenance: data.provenance,
-          policy,
+          policy: casePolicy,
           case: row,
           localReview: notes[activeCase] ?? null,
           explanation:
@@ -551,6 +620,8 @@ document.addEventListener("input", (event) => {
   if (!(event.target instanceof HTMLInputElement)) return;
   if (event.target.id === "quick-capacity")
     chartCapacity(Number(event.target.value));
+  if (event.target.id === "scenario-capacity")
+    setScenarioCapacity(Number(event.target.value));
   if (event.target.id === "queue-search") {
     search = event.target.value;
     queuePage = 1;

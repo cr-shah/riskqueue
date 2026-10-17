@@ -947,6 +947,133 @@ main {
   padding: 0;
   overflow: hidden;
 }
+.scenario-tuner {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.3fr);
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 22px;
+  background: #f0f4e8;
+  border-color: #d2dfc7;
+}
+.scenario-tuner h2 {
+  margin: 8px 0;
+}
+.scenario-tuner p {
+  margin: 0;
+  font-size: 12px;
+}
+.scenario-tuner-controls {
+  min-width: 0;
+}
+.scenario-range label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+.scenario-range-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scenario-range-track input {
+  min-width: 30px;
+  flex: 1;
+  accent-color: var(--green);
+}
+.scenario-range-track output {
+  min-width: 50px;
+  text-align: center;
+  border-radius: 4px;
+  padding: 7px;
+  background: white;
+  font: 12px var(--mono);
+}
+.strategy-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 15px;
+}
+.strategy-switch button[aria-pressed="true"] {
+  color: white;
+  background: var(--green);
+  border-color: var(--green);
+}
+.movement-panel {
+  margin-bottom: 22px;
+}
+.movement-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 20px 0;
+}
+.movement-stats > div {
+  padding: 18px;
+  display: grid;
+  gap: 4px;
+}
+.movement-stats > div + div {
+  border-left: 1px solid var(--line);
+}
+.movement-stats strong {
+  font-size: clamp(23px, 3vw, 33px);
+  font-weight: 550;
+  letter-spacing: -1px;
+}
+.movement-stats span {
+  font: 10px var(--mono);
+  color: var(--muted);
+}
+.movement-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.movement-list {
+  min-width: 0;
+  background: #f8f9f4;
+  border-radius: 5px;
+  padding: 18px;
+}
+.movement-list h3 {
+  margin-bottom: 6px;
+}
+.movement-list p {
+  font-size: 11px;
+  margin-bottom: 13px;
+}
+.movement-list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.movement-list li + li {
+  border-top: 1px solid var(--line);
+}
+.movement-case {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  padding: 11px 0;
+}
+.movement-case:hover .mono {
+  text-decoration: underline;
+}
+.movement-case span:last-child {
+  font-size: 11px;
+  color: var(--muted);
+}
+.movement-empty {
+  margin: 0;
+}
 .scenario-card .scenario-head {
   padding: 22px 24px;
   border-bottom: 1px solid var(--line);
@@ -1402,6 +1529,9 @@ input[type="range"] {
   .equal-columns {
     gap: 15px;
   }
+  .scenario-tuner {
+    grid-template-columns: 1fr;
+  }
   .hero {
     grid-template-columns: 1fr 140px;
   }
@@ -1692,6 +1822,16 @@ input[type="range"] {
   }
   .delta-banner p {
     font-size: 10px;
+  }
+  .movement-columns {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .movement-stats > div {
+    padding: 12px;
+  }
+  .movement-stats span {
+    font-size: 9px;
   }
   .toast {
     left: 50%;
