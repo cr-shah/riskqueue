@@ -4,8 +4,10 @@ import json
 import re
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from riskqueue.api import security
 from riskqueue.api.main import app
 
 client = TestClient(app)
@@ -107,6 +109,63 @@ def test_compressed_request_body_is_rejected():
     )
     assert response.status_code == 415
     assert response.json() == {"detail": "Compressed request bodies are not accepted"}
+
+
+def rate_limited_client(clock, *, limit=2, max_buckets=4096):
+    middleware = getattr(security, "RateLimitMiddleware", None)
+    assert middleware is not None, "RateLimitMiddleware has not been implemented"
+    limited = FastAPI()
+
+    @limited.get("/v1/test")
+    def protected():
+        return {"status": "ok"}
+
+    @limited.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    limited.add_middleware(
+        middleware,
+        requests_per_minute=limit,
+        max_buckets=max_buckets,
+        clock=lambda: clock[0],
+    )
+    return TestClient(limited)
+
+
+def test_rate_limit_returns_retry_metadata_and_resets_after_window():
+    clock = [100.0]
+    limited = rate_limited_client(clock)
+    headers = {"Authorization": "Bearer analyst-secret"}
+    first = limited.get("/v1/test", headers=headers)
+    second = limited.get("/v1/test", headers=headers)
+    blocked = limited.get("/v1/test", headers=headers)
+    assert first.headers["ratelimit-remaining"] == "1"
+    assert second.headers["ratelimit-remaining"] == "0"
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "60"
+    assert blocked.json() == {"detail": "Rate limit exceeded"}
+
+    clock[0] = 161.0
+    reset = limited.get("/v1/test", headers=headers)
+    assert reset.status_code == 200
+    assert reset.headers["ratelimit-remaining"] == "1"
+
+
+def test_rate_limit_isolates_credentials_and_skips_health_checks():
+    limited = rate_limited_client([100.0], limit=1)
+    assert limited.get("/v1/test", headers={"Authorization": "Bearer a"}).status_code == 200
+    assert limited.get("/v1/test", headers={"Authorization": "Bearer b"}).status_code == 200
+    assert limited.get("/v1/test", headers={"Authorization": "Bearer a"}).status_code == 429
+    assert limited.get("/health").status_code == 200
+    assert limited.get("/health").status_code == 200
+
+
+def test_rate_limit_evicts_oldest_credential_bucket_at_memory_bound():
+    limited = rate_limited_client([100.0], limit=1, max_buckets=2)
+    for token in ("oldest-secret", "second-secret", "new-secret", "oldest-secret"):
+        response = limited.get("/v1/test", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
 
 
 def test_readiness_requires_database_and_analyst_auth(monkeypatch, tmp_path):

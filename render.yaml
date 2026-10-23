@@ -20,6 +20,8 @@ services:
         sync: false
       - key: API_AUTH_REQUIRED
         value: "true"
+      - key: API_RATE_LIMIT_PER_MINUTE
+        value: "120"
       - key: SCORING_MODE
         value: demo
       - key: MODEL_VERSION

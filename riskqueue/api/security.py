@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
+import os
 import re
+import time
+from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
+from threading import Lock
 
 from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse
@@ -143,3 +149,100 @@ class RequestSizeLimitMiddleware:
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await self.app(scope, replay_receive, send)
+
+
+def configured_rate_limit() -> int:
+    try:
+        limit = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "120"))
+    except ValueError as exc:
+        raise ValueError("API rate limit must be an integer") from exc
+    if not 1 <= limit <= 10_000:
+        raise ValueError("API rate limit must be between 1 and 10,000")
+    return limit
+
+
+class RateLimitMiddleware:
+    """Apply a bounded fixed-window quota without retaining bearer credentials."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        requests_per_minute: int = 120,
+        max_buckets: int = 4096,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if requests_per_minute < 1 or max_buckets < 1:
+            raise ValueError("Rate limit and bucket bound must be positive")
+        self.app = app
+        self.limit = requests_per_minute
+        self.max_buckets = max_buckets
+        self.clock = clock
+        self._buckets: OrderedDict[str, tuple[float, int]] = OrderedDict()
+        self._lock = Lock()
+
+    @staticmethod
+    def _key(scope: Scope) -> str:
+        authorization = next(
+            (
+                value.decode("latin-1")
+                for name, value in scope.get("headers", [])
+                if name.lower() == b"authorization"
+            ),
+            "",
+        )
+        parts = authorization.split(" ")
+        if (
+            len(parts) == 2
+            and parts[0].casefold() == "bearer"
+            and parts[1]
+            and not any(character.isspace() for character in parts[1])
+        ):
+            fingerprint = hashlib.sha256(parts[1].encode()).hexdigest()
+            return f"credential:{fingerprint}"
+        client = scope.get("client")
+        return f"client:{client[0] if client else 'unknown'}"
+
+    def _consume(self, key: str) -> tuple[bool, int, int]:
+        now = self.clock()
+        with self._lock:
+            start, count = self._buckets.get(key, (now, 0))
+            if now - start >= 60:
+                start, count = now, 0
+            if key not in self._buckets and len(self._buckets) >= self.max_buckets:
+                self._buckets.popitem(last=False)
+            allowed = count < self.limit
+            if allowed:
+                count += 1
+            self._buckets[key] = (start, count)
+            self._buckets.move_to_end(key)
+            remaining = max(0, self.limit - count)
+            retry_after = max(1, math.ceil(start + 60 - now))
+            return allowed, remaining, retry_after
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not (path == "/v1" or path.startswith("/v1/")):
+            await self.app(scope, receive, send)
+            return
+
+        allowed, remaining, retry_after = self._consume(self._key(scope))
+        rate_headers = {
+            "RateLimit-Limit": str(self.limit),
+            "RateLimit-Remaining": str(remaining),
+            "RateLimit-Reset": str(retry_after),
+        }
+        if not allowed:
+            rate_headers["Retry-After"] = str(retry_after)
+            await JSONResponse(
+                {"detail": "Rate limit exceeded"}, status_code=429, headers=rate_headers
+            )(scope, receive, send)
+            return
+
+        async def rate_send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in rate_headers.items():
+                    headers[name] = value
+            await send(message)
+
+        await self.app(scope, receive, rate_send)
