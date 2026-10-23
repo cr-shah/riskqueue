@@ -1,9 +1,18 @@
+import hashlib
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from riskqueue.api.main import app
 
 client = TestClient(app)
+
+
+def hashed_credentials(**credentials):
+    return json.dumps(
+        {hashlib.sha256(token.encode()).hexdigest(): analyst for token, analyst in credentials.items()}
+    )
 
 
 def transaction(**overrides):
@@ -45,7 +54,8 @@ def test_readiness_rejects_unreachable_database(monkeypatch, tmp_path):
 def test_public_preview_routes_require_analyst_token_when_enabled(monkeypatch):
     monkeypatch.setenv("API_AUTH_REQUIRED", "true")
     token = "T" * 32
-    monkeypatch.setenv("ANALYST_TOKENS", f'{{"{token}":"analyst"}}')
+    monkeypatch.delenv("ANALYST_TOKENS", raising=False)
+    monkeypatch.setenv("ANALYST_TOKEN_HASHES", hashed_credentials(**{token: "analyst"}))
     assert client.post("/v1/score", json=transaction()).status_code == 401
     assert client.post("/v1/score/batch", json={"transactions": [transaction()]}).status_code == 401
     assert (
@@ -58,11 +68,55 @@ def test_public_preview_routes_require_analyst_token_when_enabled(monkeypatch):
     assert response.status_code == 200
 
 
-def test_hosted_readiness_rejects_short_analyst_token(monkeypatch, tmp_path):
+def test_hosted_readiness_rejects_plaintext_analyst_tokens(monkeypatch, tmp_path):
     monkeypatch.setenv("API_AUTH_REQUIRED", "true")
     monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
-    monkeypatch.setenv("ANALYST_TOKENS", '{"short":"analyst"}')
+    monkeypatch.setenv("ANALYST_TOKENS", '{"this-is-a-plaintext-production-token":"analyst"}')
+    monkeypatch.delenv("ANALYST_TOKEN_HASHES", raising=False)
     assert client.get("/ready").status_code == 503
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        '{"short":"analyst"}',
+        '{"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA":"analyst"}',
+        '{"not-hex-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz":"analyst"}',
+        '{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":"bad\\nactor"}',
+    ],
+)
+def test_hosted_readiness_rejects_malformed_token_fingerprints(
+    monkeypatch, tmp_path, credentials
+):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
+    monkeypatch.delenv("ANALYST_TOKENS", raising=False)
+    monkeypatch.setenv("ANALYST_TOKEN_HASHES", credentials)
+    assert client.get("/ready").status_code == 503
+
+
+def test_hashed_auth_accepts_case_insensitive_bearer_and_rejects_ambiguous_header(monkeypatch):
+    token = "correct-horse-battery-staple-riskqueue-2026"
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    monkeypatch.delenv("ANALYST_TOKENS", raising=False)
+    monkeypatch.setenv("ANALYST_TOKEN_HASHES", hashed_credentials(**{token: "alex"}))
+
+    assert client.get("/v1/me", headers={"Authorization": f"bearer {token}"}).json() == {
+        "analyst": "alex"
+    }
+    assert (
+        client.get("/v1/me", headers={"Authorization": f"Bearer {token} extra"}).status_code
+        == 401
+    )
+
+
+def test_auth_configuration_errors_are_not_exposed(monkeypatch):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    monkeypatch.delenv("ANALYST_TOKENS", raising=False)
+    monkeypatch.setenv("ANALYST_TOKEN_HASHES", "not-json")
+    response = client.get("/v1/me", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Authentication service unavailable"}
 
 
 def test_readiness_rejects_invalid_preview_auth_setting(monkeypatch, tmp_path):

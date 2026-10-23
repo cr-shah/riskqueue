@@ -16,7 +16,7 @@ services:
         fromDatabase:
           name: riskqueue-operator-db
           property: connectionString
-      - key: ANALYST_TOKENS
+      - key: ANALYST_TOKEN_HASHES
         sync: false
       - key: API_AUTH_REQUIRED
         value: "true"

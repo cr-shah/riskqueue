@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -18,43 +20,82 @@ from riskqueue.db.session import build_session_factory
 
 router = APIRouter(prefix="/v1/cases", tags=["cases"])
 
+_TOKEN_FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 
-def configured_analysts() -> dict[str, str]:
+
+def _credential_map(variable: str) -> dict[str, str]:
+    raw = os.getenv(variable, "")
+    if not raw:
+        return {}
     try:
-        credentials = json.loads(os.getenv("ANALYST_TOKENS", "{}"))
+        credentials = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError("Analyst authentication is misconfigured") from exc
-    if (
-        not isinstance(credentials, dict)
-        or not credentials
-        or not all(
-            isinstance(token, str) and token and isinstance(analyst, str) and analyst
-            for token, analyst in credentials.items()
-        )
+    if not isinstance(credentials, dict):
+        raise ValueError("Analyst authentication is misconfigured")
+    return credentials
+
+
+def _valid_analyst(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= 120
+        and value == value.strip()
+        and all(character.isprintable() for character in value)
+    )
+
+
+def configured_analysts() -> dict[str, str]:
+    """Return analyst identities keyed only by non-reversible token fingerprints."""
+    required = os.getenv("API_AUTH_REQUIRED", "false").lower()
+    if required not in {"true", "false"}:
+        raise ValueError("Analyst authentication is misconfigured")
+    fingerprints = _credential_map("ANALYST_TOKEN_HASHES")
+    plaintext = _credential_map("ANALYST_TOKENS")
+    if fingerprints and plaintext:
+        raise ValueError("Analyst authentication is misconfigured")
+    if required == "true" and plaintext:
+        raise ValueError("Hosted authentication requires hashed analyst tokens")
+    if fingerprints:
+        if not all(
+            isinstance(fingerprint, str)
+            and _TOKEN_FINGERPRINT.fullmatch(fingerprint)
+            and _valid_analyst(analyst)
+            for fingerprint, analyst in fingerprints.items()
+        ):
+            raise ValueError("Analyst authentication is misconfigured")
+        return fingerprints
+    if not plaintext or not all(
+        isinstance(token, str)
+        and 0 < len(token) <= 512
+        and not any(character.isspace() for character in token)
+        and _valid_analyst(analyst)
+        for token, analyst in plaintext.items()
     ):
         raise ValueError("Analyst authentication is not configured")
-    if os.getenv("API_AUTH_REQUIRED", "false").lower() == "true" and any(
-        len(token) < 32 for token in credentials
-    ):
-        raise ValueError("Hosted analyst tokens must contain at least 32 characters")
-    return credentials
+    return {hashlib.sha256(token.encode()).hexdigest(): analyst for token, analyst in plaintext.items()}
 
 
 def actor(authorization: Annotated[str | None, Header()] = None) -> str:
     try:
         credentials = configured_analysts()
     except ValueError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(503, "Authentication service unavailable") from exc
+    parts = authorization.split(" ") if authorization else []
+    if (
+        len(parts) != 2
+        or parts[0].casefold() != "bearer"
+        or not parts[1]
+        or any(character.isspace() for character in parts[1])
+    ):
         raise HTTPException(401, "Bearer token required")
-    supplied = authorization[7:]
-    for token, analyst in credentials.items():
-        if (
-            isinstance(token, str)
-            and isinstance(analyst, str)
-            and secrets.compare_digest(supplied, token)
-        ):
-            return analyst
+    supplied = hashlib.sha256(parts[1].encode()).hexdigest()
+    matched = None
+    for fingerprint, analyst in credentials.items():
+        if secrets.compare_digest(supplied, fingerprint):
+            matched = analyst
+    if matched is not None:
+        return matched
     raise HTTPException(401, "Invalid bearer token")
 
 
