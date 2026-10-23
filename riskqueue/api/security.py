@@ -184,6 +184,16 @@ def configured_rate_limit() -> int:
     return limit
 
 
+def configured_client_rate_limit() -> int:
+    try:
+        limit = int(os.getenv("API_CLIENT_RATE_LIMIT_PER_MINUTE", "240"))
+    except ValueError as exc:
+        raise ValueError("API client rate limit must be an integer") from exc
+    if not 1 <= limit <= 10_000:
+        raise ValueError("API client rate limit must be between 1 and 10,000")
+    return limit
+
+
 class RateLimitMiddleware:
     """Apply a bounded fixed-window quota without retaining bearer credentials."""
 
@@ -191,20 +201,23 @@ class RateLimitMiddleware:
         self,
         app: ASGIApp,
         requests_per_minute: int = 120,
+        client_requests_per_minute: int = 240,
         max_buckets: int = 4096,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if requests_per_minute < 1 or max_buckets < 1:
+        if requests_per_minute < 1 or client_requests_per_minute < 1 or max_buckets < 1:
             raise ValueError("Rate limit and bucket bound must be positive")
         self.app = app
         self.limit = requests_per_minute
+        self.client_limit = client_requests_per_minute
         self.max_buckets = max_buckets
         self.clock = clock
-        self._buckets: OrderedDict[str, tuple[float, int]] = OrderedDict()
+        self._credential_buckets: OrderedDict[str, tuple[float, int]] = OrderedDict()
+        self._client_buckets: OrderedDict[str, tuple[float, int]] = OrderedDict()
         self._lock = Lock()
 
     @staticmethod
-    def _key(scope: Scope) -> str:
+    def _credential_key(scope: Scope) -> str | None:
         authorization = next(
             (
                 value.decode("latin-1")
@@ -222,23 +235,32 @@ class RateLimitMiddleware:
         ):
             fingerprint = hashlib.sha256(parts[1].encode()).hexdigest()
             return f"credential:{fingerprint}"
+        return None
+
+    @staticmethod
+    def _client_key(scope: Scope) -> str:
         client = scope.get("client")
         return f"client:{client[0] if client else 'unknown'}"
 
-    def _consume(self, key: str) -> tuple[bool, int, int]:
+    def _consume(
+        self,
+        buckets: OrderedDict[str, tuple[float, int]],
+        key: str,
+        limit: int,
+    ) -> tuple[bool, int, int]:
         now = self.clock()
         with self._lock:
-            start, count = self._buckets.get(key, (now, 0))
+            start, count = buckets.get(key, (now, 0))
             if now - start >= 60:
                 start, count = now, 0
-            if key not in self._buckets and len(self._buckets) >= self.max_buckets:
-                self._buckets.popitem(last=False)
-            allowed = count < self.limit
+            if key not in buckets and len(buckets) >= self.max_buckets:
+                buckets.popitem(last=False)
+            allowed = count < limit
             if allowed:
                 count += 1
-            self._buckets[key] = (start, count)
-            self._buckets.move_to_end(key)
-            remaining = max(0, self.limit - count)
+            buckets[key] = (start, count)
+            buckets.move_to_end(key)
+            remaining = max(0, limit - count)
             retry_after = max(1, math.ceil(start + 60 - now))
             return allowed, remaining, retry_after
 
@@ -248,9 +270,21 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        allowed, remaining, retry_after = self._consume(self._key(scope))
+        allowed, remaining, retry_after = self._consume(
+            self._client_buckets, self._client_key(scope), self.client_limit
+        )
+        effective_limit = self.client_limit
+        credential_key = self._credential_key(scope)
+        if allowed and credential_key is not None:
+            credential_allowed, credential_remaining, credential_retry = self._consume(
+                self._credential_buckets, credential_key, self.limit
+            )
+            allowed = credential_allowed
+            remaining = min(remaining, credential_remaining)
+            retry_after = max(retry_after, credential_retry)
+            effective_limit = min(self.client_limit, self.limit)
         rate_headers = {
-            "RateLimit-Limit": str(self.limit),
+            "RateLimit-Limit": str(effective_limit),
             "RateLimit-Remaining": str(remaining),
             "RateLimit-Reset": str(retry_after),
         }
