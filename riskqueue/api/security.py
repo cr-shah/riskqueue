@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _INLINE_STYLE = re.compile(r"<style>(.*?)</style>", re.DOTALL)
 _INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.DOTALL)
+_DOCUMENTATION_PATHS = {"/docs", "/redoc", "/openapi.json"}
 
 
 def _sha256_source(content: str) -> str:
@@ -58,6 +59,12 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
+        path = scope.get("path", "")
+        documentation_hidden = (
+            path in _DOCUMENTATION_PATHS
+            and os.getenv("API_AUTH_REQUIRED", "false").lower() != "false"
+        )
+
         async def secure_send(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
@@ -72,12 +79,19 @@ class SecurityHeadersMiddleware:
                 headers["Cross-Origin-Resource-Policy"] = "same-origin"
                 headers["X-Permitted-Cross-Domain-Policies"] = "none"
                 headers["Cache-Control"] = "no-store"
-                headers["Content-Security-Policy"] = (
-                    self.operator_policy
-                    if scope.get("path") == "/operator"
-                    else "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
-                )
+                if path == "/operator":
+                    headers["Content-Security-Policy"] = self.operator_policy
+                elif path not in _DOCUMENTATION_PATHS or documentation_hidden:
+                    headers["Content-Security-Policy"] = (
+                        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                    )
             await send(message)
+
+        if documentation_hidden:
+            await JSONResponse({"detail": "Not found"}, status_code=404)(
+                scope, receive, secure_send
+            )
+            return
 
         await self.app(scope, receive, secure_send)
 
@@ -103,7 +117,9 @@ class RequestSizeLimitMiddleware:
             return
 
         headers = scope.get("headers", [])
-        encodings = [value.strip().lower() for key, value in headers if key.lower() == b"content-encoding"]
+        encodings = [
+            value.strip().lower() for key, value in headers if key.lower() == b"content-encoding"
+        ]
         if any(value not in {b"", b"identity"} for value in encodings):
             await self._reject(
                 scope, receive, send, 415, "Compressed request bodies are not accepted"
@@ -127,25 +143,32 @@ class RequestSizeLimitMiddleware:
                 await self._reject(scope, receive, send, 413, "Request body too large")
                 return
 
-        received = 0
-        messages: list[Message] = []
+        body = bytearray()
+        disconnected = False
         while True:
             message = await receive()
-            messages.append(message)
             if message["type"] == "http.disconnect":
+                disconnected = True
                 break
             if message["type"] != "http.request":
                 continue
-            received += len(message.get("body", b""))
-            if received > self.max_bytes:
+            body.extend(message.get("body", b""))
+            if len(body) > self.max_bytes:
                 await self._reject(scope, receive, send, 413, "Request body too large")
                 return
             if not message.get("more_body", False):
                 break
 
+        buffered_body = bytes(body)
+        replayed = False
+
         async def replay_receive() -> Message:
-            if messages:
-                return messages.pop(0)
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                if disconnected:
+                    return {"type": "http.disconnect"}
+                return {"type": "http.request", "body": buffered_body, "more_body": False}
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await self.app(scope, replay_receive, send)

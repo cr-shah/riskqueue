@@ -73,7 +73,9 @@ def configured_analysts() -> dict[str, str]:
         for token, analyst in plaintext.items()
     ):
         raise ValueError("Analyst authentication is not configured")
-    return {hashlib.sha256(token.encode()).hexdigest(): analyst for token, analyst in plaintext.items()}
+    return {
+        hashlib.sha256(token.encode()).hexdigest(): analyst for token, analyst in plaintext.items()
+    }
 
 
 def actor(authorization: Annotated[str | None, Header()] = None) -> str:

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import json
@@ -15,7 +16,10 @@ client = TestClient(app)
 
 def hashed_credentials(**credentials):
     return json.dumps(
-        {hashlib.sha256(token.encode()).hexdigest(): analyst for token, analyst in credentials.items()}
+        {
+            hashlib.sha256(token.encode()).hexdigest(): analyst
+            for token, analyst in credentials.items()
+        }
     )
 
 
@@ -68,6 +72,21 @@ def test_operator_csp_allows_only_exact_inline_assets():
     assert " style=" not in response.text
 
 
+def test_documentation_is_usable_locally_and_hidden_when_auth_is_hosted(monkeypatch):
+    monkeypatch.setenv("API_AUTH_REQUIRED", "false")
+    local = client.get("/docs")
+    assert local.status_code == 200
+    assert "content-security-policy" not in local.headers
+
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        hosted = client.get(path)
+        assert hosted.status_code == 404
+        assert hosted.headers["content-security-policy"] == (
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        )
+
+
 def test_oversized_declared_request_is_rejected_before_json_parsing():
     response = client.post(
         "/v1/score",
@@ -85,6 +104,46 @@ def test_oversized_streamed_request_is_rejected_without_content_length():
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 413
+
+
+def test_fragmented_request_is_replayed_as_one_bounded_message():
+    async def exercise():
+        fragments = [
+            {"type": "http.request", "body": b"x", "more_body": True} for _ in range(10_000)
+        ]
+        fragments.append({"type": "http.request", "body": b"", "more_body": False})
+        delivered = []
+        sent = []
+
+        async def receive():
+            return fragments.pop(0)
+
+        async def send(message):
+            sent.append(message)
+
+        async def downstream(_scope, inner_receive, inner_send):
+            message = await inner_receive()
+            delivered.append(message)
+            await inner_send({"type": "http.response.start", "status": 204, "headers": []})
+            await inner_send({"type": "http.response.body", "body": b""})
+
+        middleware = security.RequestSizeLimitMiddleware(downstream, max_bytes=20_000)
+        await middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/v1/test",
+                "headers": [],
+                "client": ("127.0.0.1", 1234),
+            },
+            receive,
+            send,
+        )
+        return delivered, sent
+
+    delivered, sent = asyncio.run(exercise())
+    assert delivered == [{"type": "http.request", "body": b"x" * 10_000, "more_body": False}]
+    assert sent[0]["status"] == 204
 
 
 def test_ambiguous_content_length_is_rejected():
@@ -220,9 +279,7 @@ def test_hosted_readiness_rejects_plaintext_analyst_tokens(monkeypatch, tmp_path
         '{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":"bad\\nactor"}',
     ],
 )
-def test_hosted_readiness_rejects_malformed_token_fingerprints(
-    monkeypatch, tmp_path, credentials
-):
+def test_hosted_readiness_rejects_malformed_token_fingerprints(monkeypatch, tmp_path, credentials):
     monkeypatch.setenv("API_AUTH_REQUIRED", "true")
     monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'ready.db'}")
     monkeypatch.delenv("ANALYST_TOKENS", raising=False)
@@ -240,8 +297,7 @@ def test_hashed_auth_accepts_case_insensitive_bearer_and_rejects_ambiguous_heade
         "analyst": "alex"
     }
     assert (
-        client.get("/v1/me", headers={"Authorization": f"Bearer {token} extra"}).status_code
-        == 401
+        client.get("/v1/me", headers={"Authorization": f"Bearer {token} extra"}).status_code == 401
     )
 
 

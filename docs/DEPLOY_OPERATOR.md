@@ -26,3 +26,9 @@ After deployment, verify `GET /ready` returns 200, `GET /v1/me` returns 401 with
 If `/ready` fails, check that `ANALYST_TOKEN_HASHES` is a nonempty JSON mapping of lowercase SHA-256 fingerprints, the database connection is available, and the selected scorer can load. Error responses omit secret and configuration details. The existing `/health` endpoint checks the scorer but does not prove database or analyst readiness; Render uses `/ready`.
 
 GitHub Pages never receives the database URL or analyst tokens. The website remains separate and does not silently switch from synthetic data to the operational API.
+
+## Build and supply-chain controls
+
+The API image builds the Python package from an isolated temporary directory, removes build sources, and runs as the unprivileged `riskqueue` user with UID 10001. The Docker context excludes environment files, Git metadata, tests, documentation, datasets, generated artifacts, infrastructure state, and frontend dependencies. Packaged Alembic migrations and the operator document remain inside the installed wheel.
+
+CI installs Python dependencies from the committed `uv.lock` with `uv sync --frozen`, installs npm dependencies from `package-lock.json` with lifecycle scripts disabled, and invokes the already installed Playwright executable. Every third-party GitHub Action is pinned to a full immutable commit SHA, each workflow has read-only default repository permissions, and every job has a timeout. Dependabot or a deliberate maintenance change should update both the human-readable version comment and its reviewed SHA.
