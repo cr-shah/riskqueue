@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,6 +33,37 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_api_responses_enforce_security_and_no_store_headers():
+    response = client.get("/health")
+    assert response.headers["strict-transport-security"] == "max-age=63072000; includeSubDomains"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+    assert response.headers["cross-origin-resource-policy"] == "same-origin"
+    assert response.headers["cache-control"] == "no-store"
+    assert "camera=()" in response.headers["permissions-policy"]
+    assert response.headers["content-security-policy"] == (
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    )
+
+
+def test_operator_csp_allows_only_exact_inline_assets():
+    response = client.get("/operator")
+    style = re.search(r"<style>(.*?)</style>", response.text, re.DOTALL)
+    script = re.search(r"<script>(.*?)</script>", response.text, re.DOTALL)
+    assert style and script
+    style_hash = base64.b64encode(hashlib.sha256(style.group(1).encode()).digest()).decode()
+    script_hash = base64.b64encode(hashlib.sha256(script.group(1).encode()).digest()).decode()
+    policy = response.headers["content-security-policy"]
+    assert f"style-src 'sha256-{style_hash}'" in policy
+    assert f"script-src 'sha256-{script_hash}'" in policy
+    assert "connect-src 'self'" in policy
+    assert "frame-ancestors 'none'" in policy
+    assert "'unsafe-inline'" not in policy
+    assert " style=" not in response.text
 
 
 def test_readiness_requires_database_and_analyst_auth(monkeypatch, tmp_path):
