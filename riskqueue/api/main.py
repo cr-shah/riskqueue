@@ -18,6 +18,7 @@ from riskqueue.api.security import (
     RateLimitMiddleware,
     RequestSizeLimitMiddleware,
     SecurityHeadersMiddleware,
+    configured_client_rate_limit,
     configured_rate_limit,
 )
 from riskqueue.db.session import build_session_factory
@@ -34,6 +35,7 @@ app.add_middleware(RequestSizeLimitMiddleware, max_bytes=1_048_576)
 app.add_middleware(
     RateLimitMiddleware,
     requests_per_minute=configured_rate_limit(),
+    client_requests_per_minute=configured_client_rate_limit(),
     max_buckets=4096,
 )
 app.add_middleware(
