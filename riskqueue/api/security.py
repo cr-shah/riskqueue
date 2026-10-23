@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from starlette.datastructures import MutableHeaders
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _INLINE_STYLE = re.compile(r"<style>(.*?)</style>", re.DOTALL)
@@ -73,3 +74,72 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, secure_send)
+
+
+class RequestSizeLimitMiddleware:
+    """Reject ambiguous, encoded, or oversized bodies before application parsing."""
+
+    def __init__(self, app: ASGIApp, max_bytes: int = 1_048_576) -> None:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        self.app = app
+        self.max_bytes = max_bytes
+
+    @staticmethod
+    async def _reject(
+        scope: Scope, receive: Receive, send: Send, status_code: int, detail: str
+    ) -> None:
+        await JSONResponse({"detail": detail}, status_code=status_code)(scope, receive, send)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = scope.get("headers", [])
+        encodings = [value.strip().lower() for key, value in headers if key.lower() == b"content-encoding"]
+        if any(value not in {b"", b"identity"} for value in encodings):
+            await self._reject(
+                scope, receive, send, 415, "Compressed request bodies are not accepted"
+            )
+            return
+
+        lengths = [value.strip() for key, value in headers if key.lower() == b"content-length"]
+        if len(lengths) > 1 or (lengths and b"," in lengths[0]):
+            await self._reject(scope, receive, send, 400, "Invalid Content-Length")
+            return
+        if lengths:
+            try:
+                declared = int(lengths[0].decode("ascii"))
+            except (UnicodeDecodeError, ValueError):
+                await self._reject(scope, receive, send, 400, "Invalid Content-Length")
+                return
+            if declared < 0:
+                await self._reject(scope, receive, send, 400, "Invalid Content-Length")
+                return
+            if declared > self.max_bytes:
+                await self._reject(scope, receive, send, 413, "Request body too large")
+                return
+
+        received = 0
+        messages: list[Message] = []
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] == "http.disconnect":
+                break
+            if message["type"] != "http.request":
+                continue
+            received += len(message.get("body", b""))
+            if received > self.max_bytes:
+                await self._reject(scope, receive, send, 413, "Request body too large")
+                return
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive() -> Message:
+            if messages:
+                return messages.pop(0)
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)

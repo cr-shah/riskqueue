@@ -66,6 +66,49 @@ def test_operator_csp_allows_only_exact_inline_assets():
     assert " style=" not in response.text
 
 
+def test_oversized_declared_request_is_rejected_before_json_parsing():
+    response = client.post(
+        "/v1/score",
+        content=b"x" * (1_048_576 + 1),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Request body too large"}
+
+
+def test_oversized_streamed_request_is_rejected_without_content_length():
+    response = client.post(
+        "/v1/score",
+        content=iter((b"{", b"x" * 1_048_576, b"}")),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+
+
+def test_ambiguous_content_length_is_rejected():
+    response = client.post(
+        "/v1/score",
+        content=b"{}",
+        headers=[
+            ("Content-Type", "application/json"),
+            ("Content-Length", "2"),
+            ("Content-Length", "3"),
+        ],
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid Content-Length"}
+
+
+def test_compressed_request_body_is_rejected():
+    response = client.post(
+        "/v1/score",
+        content=b"compressed-placeholder",
+        headers={"Content-Type": "application/json", "Content-Encoding": "gzip"},
+    )
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Compressed request bodies are not accepted"}
+
+
 def test_readiness_requires_database_and_analyst_auth(monkeypatch, tmp_path):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("ANALYST_TOKENS", raising=False)

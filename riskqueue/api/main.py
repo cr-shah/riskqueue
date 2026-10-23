@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from riskqueue.api.cases import actor, configured_analysts, database
 from riskqueue.api.cases import router as cases_router
 from riskqueue.api.schemas import BatchRequest, QueueRequest, ScoreResponse, Transaction
-from riskqueue.api.security import SecurityHeadersMiddleware
+from riskqueue.api.security import RequestSizeLimitMiddleware, SecurityHeadersMiddleware
 from riskqueue.db.session import build_session_factory
 from riskqueue.replay import ReplayRequest, replay
 from riskqueue.scoring import risk_band, runtime_scorer
@@ -25,6 +25,7 @@ app = FastAPI(
     version="0.1.0",
     description="Auditable demo scoring and cost-aware analyst queue prioritization.",
 )
+app.add_middleware(RequestSizeLimitMiddleware, max_bytes=1_048_576)
 app.add_middleware(
     SecurityHeadersMiddleware,
     operator_document=Path(__file__).with_name("operator.html"),
