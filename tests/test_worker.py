@@ -123,3 +123,24 @@ def test_failed_message_is_not_deleted():
     with pytest.raises(RuntimeError, match="temporary"):
         process_received_message(queue, Processor(), received)
     assert queue.deleted == []
+
+
+def test_oversized_object_rolls_back_and_keeps_queue_message(tmp_path, session_factory):
+    store = LocalObjectStore(tmp_path, max_bytes=4)
+    store.put_bytes("raw", "incoming/batch.csv", _csv(), source="test", content_type="text/csv")
+    warehouse = CollectingWarehouse()
+    processor = EventProcessor(
+        session_factory=session_factory, object_store=store, warehouse=warehouse
+    )
+
+    class Queue:
+        def delete(self, receipt_handle):
+            pytest.fail("Rejected ingestion must remain available for retry and DLQ handling")
+
+    received = ReceivedMessage(_message().model_dump_json(), "receipt", "message", 1)
+    with pytest.raises(ValueError, match="byte limit"):
+        process_received_message(Queue(), processor, received)
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(ProcessedEvent)) == 0
+        assert session.scalar(select(func.count()).select_from(OperationalTransaction)) == 0
+    assert warehouse.rows == []

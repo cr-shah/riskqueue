@@ -4,7 +4,32 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Protocol
+
+DEFAULT_MAX_INGESTION_BYTES = 10 * 1024 * 1024
+MAX_ALLOWED_INGESTION_BYTES = 100 * 1024 * 1024
+
+
+def _ingestion_limit(max_bytes: int | None) -> int:
+    if max_bytes is None:
+        try:
+            max_bytes = int(os.getenv("MAX_INGESTION_BYTES", str(DEFAULT_MAX_INGESTION_BYTES)))
+        except ValueError:
+            raise ValueError("MAX_INGESTION_BYTES must be an integer") from None
+    if type(max_bytes) is not int or not 1 <= max_bytes <= MAX_ALLOWED_INGESTION_BYTES:
+        raise ValueError("MAX_INGESTION_BYTES must be between 1 and 104857600")
+    return max_bytes
+
+
+def _bounded_read(stream: BinaryIO, max_bytes: int) -> bytes:
+    payload = bytearray()
+    while True:
+        chunk = stream.read(min(64 * 1024, max_bytes - len(payload) + 1))
+        if not chunk:
+            return bytes(payload)
+        if len(payload) + len(chunk) > max_bytes:
+            raise ValueError("Object exceeds ingestion byte limit")
+        payload.extend(chunk)
 
 
 class ObjectStore(Protocol):
@@ -16,7 +41,8 @@ class ObjectStore(Protocol):
 
 
 class S3ObjectStore:
-    def __init__(self, client=None):
+    def __init__(self, client=None, *, max_bytes: int | None = None):
+        self.max_bytes = _ingestion_limit(max_bytes)
         if client is None:
             import boto3
 
@@ -25,7 +51,14 @@ class S3ObjectStore:
 
     def get_bytes(self, bucket: str, key: str) -> bytes:
         response = self.client.get_object(Bucket=bucket, Key=key)
-        return response["Body"].read()
+        body = response["Body"]
+        try:
+            declared_length = response.get("ContentLength")
+            if declared_length is not None and declared_length > self.max_bytes:
+                raise ValueError("Object exceeds ingestion byte limit")
+            return _bounded_read(body, self.max_bytes)
+        finally:
+            body.close()
 
     def put_bytes(
         self, bucket: str, key: str, payload: bytes, *, source: str, content_type: str
@@ -44,7 +77,8 @@ class S3ObjectStore:
 class LocalObjectStore:
     """Filesystem-backed raw object store with immutable write semantics."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, *, max_bytes: int | None = None):
+        self.max_bytes = _ingestion_limit(max_bytes)
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -55,7 +89,10 @@ class LocalObjectStore:
         return target
 
     def get_bytes(self, bucket: str, key: str) -> bytes:
-        return self._path(bucket, key).read_bytes()
+        with self._path(bucket, key).open("rb") as handle:
+            if os.fstat(handle.fileno()).st_size > self.max_bytes:
+                raise ValueError("Object exceeds ingestion byte limit")
+            return _bounded_read(handle, self.max_bytes)
 
     def put_bytes(
         self, bucket: str, key: str, payload: bytes, *, source: str, content_type: str

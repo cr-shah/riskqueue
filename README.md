@@ -79,6 +79,8 @@ Transaction batches land under the S3 `incoming/` prefix. Bucket versioning, ser
 
 `LocalObjectStore` provides the same byte-oriented interface for local development and unit tests. Local writes use exclusive file creation and persist a metadata sidecar.
 
+Both object stores cap downloads at 10 MiB by default, with `MAX_INGESTION_BYTES` configurable up to 100 MiB. Size metadata and actual streamed bytes are checked before worker CSV parsing; rejected batches follow normal rollback and SQS retry handling. See [ingestion limits](docs/OPERATIONS.md).
+
 ### 2. Lightweight Lambda ingestion
 
 S3 object creation invokes a small Lambda handler. The function:
