@@ -24,6 +24,8 @@ services:
         value: "120"
       - key: API_CLIENT_RATE_LIMIT_PER_MINUTE
         value: "240"
+      - key: TRUSTED_HOSTS
+        sync: false
       - key: SCORING_MODE
         value: demo
       - key: MODEL_VERSION

@@ -18,6 +18,7 @@ from riskqueue.api.security import (
     RateLimitMiddleware,
     RequestSizeLimitMiddleware,
     SecurityHeadersMiddleware,
+    TrustedHostPolicyMiddleware,
     configured_client_rate_limit,
     configured_rate_limit,
 )
@@ -38,6 +39,7 @@ app.add_middleware(
     client_requests_per_minute=configured_client_rate_limit(),
     max_buckets=4096,
 )
+app.add_middleware(TrustedHostPolicyMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
     operator_document=Path(__file__).with_name("operator.html"),
