@@ -14,6 +14,64 @@ from riskqueue.api.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def trusted_test_host(monkeypatch):
+    monkeypatch.setenv("TRUSTED_HOSTS", "testserver")
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "testserver?evil",
+        "testserver#evil",
+        "test\tserver",
+        "testserver:",
+        "testserver@evil",
+        "testserver/",
+        "testserver:99999",
+    ],
+)
+def test_api_rejects_malformed_host_authority(host):
+    assert client.get("/health", headers={"host": host}).status_code == 400
+
+
+def test_api_rejects_duplicate_host_headers():
+    response = client.get("/health", headers=[("host", "testserver"), ("host", "evil.example")])
+    assert response.status_code == 400
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "api.example.com..",
+        "api.example.com...:443",
+        "bad..internal.example.com",
+        "%.internal.example.com",
+        ".internal.example.com",
+    ],
+)
+def test_wildcard_allowlist_rejects_invalid_dns_names(monkeypatch, host):
+    monkeypatch.setenv("TRUSTED_HOSTS", "api.example.com,*.internal.example.com")
+    assert client.get("/health", headers={"host": host}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "host", ["API.EXAMPLE.COM:443", "api.example.com.", "[::1]:8000", "worker.internal.example.com"]
+)
+def test_api_accepts_configured_hosts_and_subdomains(monkeypatch, host):
+    monkeypatch.setenv("TRUSTED_HOSTS", "api.example.com,::1,*.internal.example.com")
+    assert client.get("/health", headers={"host": host}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "config", ["*", "https://api.example.com", "api.example.com,", "api.example.com:443"]
+)
+def test_invalid_host_configuration_fails_closed(monkeypatch, config):
+    monkeypatch.setenv("TRUSTED_HOSTS", config)
+    assert client.get("/health").status_code == 503
+
+
 def hashed_credentials(**credentials):
     return json.dumps(
         {
@@ -85,6 +143,44 @@ def test_documentation_is_usable_locally_and_hidden_when_auth_is_hosted(monkeypa
         assert hosted.headers["content-security-policy"] == (
             "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         )
+
+
+def test_trusted_hosts_reject_spoofed_host_and_fail_closed_when_unconfigured(monkeypatch):
+    middleware = getattr(security, "TrustedHostPolicyMiddleware", None)
+    assert middleware is not None, "TrustedHostPolicyMiddleware has not been implemented"
+    protected = FastAPI()
+
+    @protected.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    protected.add_middleware(middleware)
+    secured = TestClient(protected, base_url="https://api.example.com")
+
+    monkeypatch.setenv("API_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("TRUSTED_HOSTS", "api.example.com")
+    assert secured.get("/health").status_code == 200
+    assert secured.get("/health", headers={"Host": "evil.example"}).status_code == 400
+
+    monkeypatch.delenv("TRUSTED_HOSTS")
+    unavailable = secured.get("/health")
+    assert unavailable.status_code == 503
+    assert unavailable.json() == {"detail": "Host validation is unavailable"}
+
+
+def test_trusted_hosts_keep_local_test_clients_usable(monkeypatch):
+    middleware = getattr(security, "TrustedHostPolicyMiddleware", None)
+    assert middleware is not None, "TrustedHostPolicyMiddleware has not been implemented"
+    local = FastAPI()
+
+    @local.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    local.add_middleware(middleware)
+    monkeypatch.setenv("API_AUTH_REQUIRED", "false")
+    monkeypatch.delenv("TRUSTED_HOSTS", raising=False)
+    assert TestClient(local).get("/health").status_code == 200
 
 
 def test_oversized_declared_request_is_rejected_before_json_parsing():

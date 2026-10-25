@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import math
 import os
 import re
@@ -12,6 +13,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
+from urllib.parse import urlsplit
 
 from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse
@@ -20,6 +22,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 _INLINE_STYLE = re.compile(r"<style>(.*?)</style>", re.DOTALL)
 _INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.DOTALL)
 _DOCUMENTATION_PATHS = {"/docs", "/redoc", "/openapi.json"}
+_DNS_HOST = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
+_LOCAL_HOSTS = ("testserver", "localhost", "127.0.0.1", "::1")
 
 
 def _sha256_source(content: str) -> str:
@@ -45,6 +52,97 @@ def operator_content_security_policy(document: Path) -> str:
             "frame-ancestors 'none'",
         )
     )
+
+
+def _valid_host_pattern(pattern: str) -> bool:
+    candidate = pattern.removeprefix("*.")
+    if (
+        not candidate
+        or len(candidate) > 253
+        or pattern == "*"
+        or any(character.isspace() for character in pattern)
+    ):
+        return False
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return _DNS_HOST.fullmatch(candidate) is not None
+    return not pattern.startswith("*.")
+
+
+def configured_trusted_hosts() -> tuple[str, ...]:
+    required = os.getenv("API_AUTH_REQUIRED", "false").lower()
+    if required not in {"true", "false"}:
+        raise ValueError("Host validation is misconfigured")
+    raw = os.getenv("TRUSTED_HOSTS", "")
+    if not raw:
+        if required == "true":
+            raise ValueError("Hosted deployments require TRUSTED_HOSTS")
+        return _LOCAL_HOSTS
+    hosts = tuple(item.strip().casefold().removesuffix(".") for item in raw.split(","))
+    if not hosts or not all(_valid_host_pattern(host) for host in hosts):
+        raise ValueError("Host validation is misconfigured")
+    return hosts
+
+
+class TrustedHostPolicyMiddleware:
+    """Reject spoofed Host headers using a fail-closed hosted allowlist."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    @staticmethod
+    def _hostname(scope: Scope) -> str | None:
+        values = [
+            value.decode("latin-1")
+            for name, value in scope.get("headers", [])
+            if name.lower() == b"host"
+        ]
+        if len(values) != 1:
+            return None
+        authority = values[0]
+        if (
+            not authority
+            or not authority.isascii()
+            or any(ord(character) <= 32 or ord(character) == 127 for character in authority)
+            or any(character in authority for character in "@/?#\\")
+            or authority.endswith(":")
+        ):
+            return None
+        try:
+            parsed = urlsplit(f"//{authority}")
+            _ = parsed.port  # Validate the optional port before matching the host.
+        except ValueError:
+            return None
+        if parsed.username or parsed.password or parsed.path or not parsed.hostname:
+            return None
+        hostname = parsed.hostname.casefold().removesuffix(".")
+        if "*" in hostname or not _valid_host_pattern(hostname):
+            return None
+        return hostname
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        try:
+            allowed_hosts = configured_trusted_hosts()
+        except ValueError:
+            await JSONResponse({"detail": "Host validation is unavailable"}, status_code=503)(
+                scope, receive, send
+            )
+            return
+        hostname = self._hostname(scope)
+        allowed = hostname is not None and any(
+            hostname == pattern or (pattern.startswith("*.") and hostname.endswith(pattern[1:]))
+            for pattern in allowed_hosts
+        )
+        if not allowed:
+            await JSONResponse({"detail": "Invalid host header"}, status_code=400)(
+                scope, receive, send
+            )
+            return
+        await self.app(scope, receive, send)
 
 
 class SecurityHeadersMiddleware:
