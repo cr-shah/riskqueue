@@ -61,7 +61,9 @@ class FraudScorer:
         if configured:
             if not (Path(configured) / "riskqueue.joblib").is_file():
                 raise FileNotFoundError(f"Configured model artifact is missing: {configured}")
-            self.model, metadata = load_artifact(configured)
+            self.model, metadata = load_artifact(
+                configured, expected_sha256=os.getenv("MODEL_ARTIFACT_SHA256")
+            )
             self.model_version = metadata["model_version"]
             if metadata.get("feature_version") != FEATURE_VERSION:
                 raise ValueError(
@@ -104,7 +106,7 @@ class FraudScorer:
 
 @lru_cache(maxsize=16)
 def _cached_runtime_scorer(
-    mode: str | None, artifact: str | None, version: str | None
+    mode: str | None, artifact: str | None, version: str | None, fingerprint: str | None
 ) -> FraudScorer:
     return FraudScorer()
 
@@ -112,5 +114,8 @@ def _cached_runtime_scorer(
 def runtime_scorer() -> FraudScorer:
     """Reuse the loaded artifact; restart the API to activate an artifact at the same path."""
     return _cached_runtime_scorer(
-        os.getenv("SCORING_MODE"), os.getenv("MODEL_ARTIFACT_DIR"), os.getenv("MODEL_VERSION")
+        os.getenv("SCORING_MODE"),
+        os.getenv("MODEL_ARTIFACT_DIR"),
+        os.getenv("MODEL_VERSION"),
+        os.getenv("MODEL_ARTIFACT_SHA256"),
     )

@@ -152,6 +152,7 @@ def test_api_and_worker_share_feature_sensitive_model(harness, tmp_path, monkeyp
         ),
         model_dir,
     )
+    monkeypatch.setenv("MODEL_ARTIFACT_SHA256", (model_dir / "artifact.sha256").read_text().strip())
     scorer = FraudScorer(model_dir)
     process("one", [tx("a")], scorer=scorer)
     monkeypatch.setenv("DATABASE_URL", url)
@@ -181,7 +182,7 @@ def test_missing_configured_model_fails_closed(harness, tmp_path, monkeypatch):
     assert TestClient(app).get("/health").status_code == 503
 
 
-def test_model_feature_version_mismatch_fails_before_scoring(tmp_path):
+def test_model_feature_version_mismatch_fails_before_scoring(tmp_path, monkeypatch):
     model_dir = tmp_path / "model"
     save_artifact(
         CountModel(),
@@ -197,6 +198,7 @@ def test_model_feature_version_mismatch_fails_before_scoring(tmp_path):
         ),
         model_dir,
     )
+    monkeypatch.setenv("MODEL_ARTIFACT_SHA256", (model_dir / "artifact.sha256").read_text().strip())
     with pytest.raises(ValueError, match="feature version"):
         FraudScorer(model_dir)
 

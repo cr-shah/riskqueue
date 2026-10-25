@@ -28,6 +28,7 @@ services:
       ANALYST_TOKENS: ${ANALYST_TOKENS:-}
       SCORING_MODE: ${SCORING_MODE:-demo}
       MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-}
+      MODEL_ARTIFACT_SHA256: ${MODEL_ARTIFACT_SHA256:-}
     volumes:
       - ./artifacts/models:/app/artifacts/models:ro
     depends_on:
@@ -53,6 +54,7 @@ services:
       LOCAL_OBJECT_STORE_ROOT: /app/data/raw-events
       MODEL_VERSION: ${MODEL_VERSION:-demo-policy-v1}
       MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-}
+      MODEL_ARTIFACT_SHA256: ${MODEL_ARTIFACT_SHA256:-}
       SCORING_MODE: ${SCORING_MODE:-demo}
       REVIEW_CAPACITY: ${REVIEW_CAPACITY:-750}
       MANUAL_REVIEW_COST: ${MANUAL_REVIEW_COST:-4}
