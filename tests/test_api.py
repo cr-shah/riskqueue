@@ -170,7 +170,7 @@ def test_compressed_request_body_is_rejected():
     assert response.json() == {"detail": "Compressed request bodies are not accepted"}
 
 
-def rate_limited_client(clock, *, limit=2, max_buckets=4096):
+def rate_limited_client(clock, *, limit=2, client_limit=240, max_buckets=4096):
     middleware = getattr(security, "RateLimitMiddleware", None)
     assert middleware is not None, "RateLimitMiddleware has not been implemented"
     limited = FastAPI()
@@ -186,6 +186,7 @@ def rate_limited_client(clock, *, limit=2, max_buckets=4096):
     limited.add_middleware(
         middleware,
         requests_per_minute=limit,
+        client_requests_per_minute=client_limit,
         max_buckets=max_buckets,
         clock=lambda: clock[0],
     )
@@ -218,6 +219,19 @@ def test_rate_limit_isolates_credentials_and_skips_health_checks():
     assert limited.get("/v1/test", headers={"Authorization": "Bearer a"}).status_code == 429
     assert limited.get("/health").status_code == 200
     assert limited.get("/health").status_code == 200
+
+
+def test_rate_limit_bounds_rotating_bearer_tokens_by_client():
+    limited = rate_limited_client([100.0], limit=10, client_limit=2)
+
+    first = limited.get("/v1/test", headers={"Authorization": "Bearer invalid-one"})
+    second = limited.get("/v1/test", headers={"Authorization": "Bearer invalid-two"})
+    blocked = limited.get("/v1/test", headers={"Authorization": "Bearer invalid-three"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "60"
 
 
 def test_rate_limit_evicts_oldest_credential_bucket_at_memory_bound():
