@@ -114,6 +114,44 @@ export function evaluate(rows, policy) {
   };
 }
 
+/** Evaluate all ranked prefixes under fixed policy assumptions. @param {Transaction[]} rows @param {Policy} policy */
+export function capacityTradeoff(rows, policy) {
+  const p = normalizePolicy(policy, rows.length);
+  const queue = buildQueue(rows, { ...p, capacity: rows.length });
+  const totalFraudValue = rows.reduce(
+    (sum, row) => sum + row.amount * row.isFraud,
+    0,
+  );
+  let captured = 0;
+  const points = Array.from({ length: queue.length + 1 }, (_, reviews) => {
+    if (reviews > 0) {
+      const row = queue[reviews - 1];
+      captured += row.amount * row.isFraud;
+    }
+    const reviewSpend = reviews * p.reviewCost;
+    const missedLoss = Math.max(0, totalFraudValue - captured) * p.lossFraction;
+    return {
+      reviews,
+      valueCapture: totalFraudValue
+        ? Math.min(1, captured / totalFraudValue)
+        : 0,
+      reviewSpend,
+      missedLoss,
+      modeledCost: reviewSpend + missedLoss,
+    };
+  });
+  const best = points.reduce((best, point) =>
+    point.modeledCost < best.modeledCost ? point : best,
+  );
+  // Ignore floating-point noise from subtracting captured value from total loss.
+  const tolerance =
+    4 * Number.EPSILON * Math.max(points[0].modeledCost, best.modeledCost);
+  const minimum =
+    points.find((point) => point.modeledCost - best.modeledCost <= tolerance) ??
+    best;
+  return { points, minimum };
+}
+
 /** Compare selection membership without using outcome labels to choose cases. @param {Transaction[]} rows @param {Policy} baseline @param {Policy} alternative */
 export function compareSelections(rows, baseline, alternative) {
   const first = buildQueue(rows, baseline);

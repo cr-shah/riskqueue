@@ -165,6 +165,12 @@ test("all six views are accessible and fit the viewport", async ({ page }) => {
     await expect(page.locator("main h1")).not.toHaveText(
       "Preparing your workspace",
     );
+    if (view === "scenarios") {
+      await page.getByText("View cost breakdown").click();
+      await expect(
+        page.getByRole("region", { name: "Capacity cost checkpoints" }),
+      ).toBeVisible();
+    }
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
       .analyze();
@@ -207,4 +213,48 @@ test("keyboard navigation opens and closes a case with focus restored", async ({
   await page.keyboard.press("Escape");
   await expect(page.locator("#case-dialog")).not.toBeVisible();
   await expect(page.locator(".case-link").first()).toBeFocused();
+});
+
+test("capacity cost replay applies the smallest tied minimum and exports its evidence", async ({
+  page,
+}) => {
+  await page.goto("./?capacity=137&cost=0&loss=0&b_capacity=75#scenarios");
+  const panel = page.getByRole("region", { name: "Capacity cost replay" });
+  const apply = panel.getByRole("button", {
+    name: "Apply lowest-cost capacity",
+  });
+  await expect(apply).toBeVisible();
+  await apply.press("Enter");
+  await expect(apply).toBeFocused();
+  await expect(page.locator("#policy-capacity")).toHaveValue("0");
+  await expect(
+    page.getByRole("slider", { name: "Alternative review capacity" }),
+  ).toHaveValue("0");
+  await expect(page.locator(".scenario-card").first()).toContainText(
+    "75 capacity",
+  );
+
+  await page.locator("#policy-threshold").fill("1");
+  await page.locator("#policy-threshold").press("Tab");
+  await expect(
+    panel.getByText("No transactions meet the minimum probability."),
+  ).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "Download replay JSON" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("riskqueue-capacity-replay.json");
+  const chunks = [];
+  for await (const chunk of await download.createReadStream())
+    chunks.push(chunk);
+  const replay = JSON.parse(Buffer.concat(chunks).toString());
+  expect(replay.provenance.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(replay.policy).toMatchObject({ capacity: 0, threshold: 1 });
+  expect(replay.minimum.reviews).toBe(0);
+  expect(replay.points).toHaveLength(1);
+  expect(replay.points[0].modeledCost).toBe(0);
+  await page.reload();
+  await expect(page.locator("#policy-capacity")).toHaveValue("0");
+  await expect(page.locator(".scenario-card").first()).toContainText(
+    "75 capacity",
+  );
 });
