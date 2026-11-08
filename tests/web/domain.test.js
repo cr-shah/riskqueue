@@ -5,6 +5,7 @@ import {
   DEFAULT_POLICY,
   auditSnapshot,
   buildQueue,
+  capacityTradeoff,
   compareSelections,
   demoScore,
   evaluate,
@@ -196,4 +197,79 @@ test("audit exports are reproducible and carry snapshot identity and selected ID
   assert.equal(a.selectedTransactionIds.length, 250);
   assert.equal(a.provenance.sha256, data.provenance.sha256);
   assert.equal(a.assumptions.reviewPreventsFraudLoss, true);
+});
+
+test("capacity sweep prices every eligible prefix and counts excluded fraud as missed", () => {
+  const rows = [
+    { amount: 100, fraud_probability: 0.9, isFraud: 0 },
+    { amount: 40, fraud_probability: 0.8, isFraud: 1 },
+    { amount: 5, fraud_probability: 0.7, isFraud: 0 },
+    { amount: 60, fraud_probability: 0.1, isFraud: 1 },
+  ];
+  const policy = {
+    ...DEFAULT_POLICY,
+    strategy: "probability",
+    capacity: 1,
+    threshold: 0.5,
+    lossFraction: 0.5,
+  };
+  const { points, minimum } = capacityTradeoff(rows, policy);
+  assert.deepEqual(
+    points.map(({ reviews, valueCapture, modeledCost }) => [
+      reviews,
+      valueCapture,
+      modeledCost,
+    ]),
+    [
+      [0, 0, 50],
+      [1, 0, 54],
+      [2, 0.4, 38],
+      [3, 0.4, 42],
+    ],
+  );
+  assert.equal(minimum.reviews, 2);
+  assert.equal(minimum.reviewSpend, 8);
+  assert.equal(minimum.missedLoss, 30);
+  assert.deepEqual(
+    capacityTradeoff(rows, { ...policy, threshold: 1 }).points,
+    points.slice(0, 1),
+  );
+  assert.equal(
+    capacityTradeoff(rows, { ...policy, reviewCost: 0, lossFraction: 0 })
+      .minimum.reviews,
+    0,
+  );
+});
+
+test("capacity sweep matches active-policy cost and capture on the published cohort", () => {
+  const policy = {
+    ...DEFAULT_POLICY,
+    threshold: 0.23,
+    reviewCost: 6.5,
+    lossFraction: 0.35,
+  };
+  const { points, minimum } = capacityTradeoff(data.transactions, policy);
+  for (const reviews of [0, 1, minimum.reviews, points.length - 1]) {
+    const reference = evaluate(data.transactions, {
+      ...policy,
+      capacity: reviews,
+    });
+    assert.equal(points[reviews].modeledCost, reference.modeledCost);
+    assert.equal(points[reviews].valueCapture, reference.valueCapture);
+  }
+});
+
+test("capacity sweep keeps the smaller queue when fractional loss introduces rounding noise", () => {
+  const rows = [
+    { amount: 10, fraud_probability: 0.9, isFraud: 1 },
+    { amount: 0.01, fraud_probability: 0.1, isFraud: 1 },
+  ];
+  const { minimum } = capacityTradeoff(rows, {
+    ...DEFAULT_POLICY,
+    strategy: "probability",
+    threshold: 0.5,
+    reviewCost: 0.5,
+    lossFraction: 0.05,
+  });
+  assert.equal(minimum.reviews, 0);
 });

@@ -5,6 +5,7 @@ import {
   auditSnapshot,
   calibrationBins,
   captureCurve,
+  capacityTradeoff,
   compareSelections,
   demoScore,
   evaluate,
@@ -49,6 +50,8 @@ let notes = {};
 let activeCase = "";
 let activeCaseSource = "alternative";
 let toastTimer = 0;
+/** @type {{key:string,result:ReturnType<typeof capacityTradeoff>} | undefined} */
+let replayCache;
 /** @param {string} id @returns {HTMLElement} */
 function el(id) {
   const element = document.getElementById(id);
@@ -234,7 +237,62 @@ function scenarioShell() {
       ([value, label]) =>
         `<button class="button small" data-strategy="${value}" aria-pressed="${policy.strategy === value}">${label}</button>`,
     )
-    .join("")}</div></div></section><div id="page-content"></div>`;
+    .join(
+      "",
+    )}</div></div></section>${replayShell()}<div id="page-content"></div>`;
+}
+
+function replayShell() {
+  return `<section class="panel replay-panel" role="region" aria-labelledby="replay-title"><div class="panel-header"><div><span class="small-label">HISTORICAL POLICY REPLAY</span><h2 id="replay-title">Capacity cost replay</h2><p>Move the alternative capacity above to see the cost of reviewing more or fewer cases.</p></div></div><div id="replay-result"></div><div class="pill-row"><button class="button primary" data-action="apply-replay">Apply lowest-cost capacity</button><button class="button" data-action="export-replay">Download replay JSON <span aria-hidden="true">↓</span></button></div><details class="chart-data"><summary>View cost breakdown</summary><p class="chart-note">Modeled cost is review spend plus missed fraud loss. Scroll the table horizontally on narrow screens.</p><div id="replay-checkpoints"></div></details><p class="fine-print">Ranking, threshold, cost per review, and loss fraction stay fixed during the sweep. The minimum uses known labels on this synthetic cohort. It is an in-sample replay result, not a validated capacity for future traffic.</p></section>`;
+}
+
+function scenarioReplay() {
+  const key = JSON.stringify([
+    policy.strategy,
+    policy.threshold,
+    policy.reviewCost,
+    policy.lossFraction,
+  ]);
+  if (replayCache?.key !== key) {
+    replayCache = { key, result: capacityTradeoff(data.transactions, policy) };
+  }
+  return replayCache.result;
+}
+
+function replayContent() {
+  const { points, minimum } = scenarioReplay();
+  const eligible = points.length - 1;
+  const selected = points[Math.min(eligible, policy.capacity)];
+  const end = points[eligible];
+  const checkpoints = [
+    { label: "Current alternative", point: selected },
+    { label: "Historical minimum", point: minimum },
+    { label: "No reviews", point: points[0] },
+    { label: "All eligible", point: end },
+  ];
+  const summary = `<div class="replay-layout"><div>${eligible ? replayChart(points, selected, minimum) : '<p class="inline-note">No transactions meet the minimum probability.</p>'}<p class="chart-note">${count(eligible)} eligible transactions. The chart uses actual reviews, capped by eligibility.</p></div><dl class="replay-summary"><div><dt>Current alternative</dt><dd>${money(selected.modeledCost, 2)}<small>${count(selected.reviews)} reviews · ${pct(selected.valueCapture)} value captured</small></dd></div><div><dt>Historical minimum</dt><dd>${money(minimum.modeledCost, 2)}<small>${count(minimum.reviews)} reviews · ${pct(minimum.valueCapture)} value captured</small></dd></div></dl></div>`;
+  const table = `<div class="table-wrap" tabindex="0" role="region" aria-label="Capacity cost checkpoints"><table class="data-table"><thead><tr><th scope="col">Checkpoint</th><th scope="col">Reviews</th><th scope="col">Review spend</th><th scope="col">Missed loss</th><th scope="col">Modeled cost</th></tr></thead><tbody>${checkpoints.map(({ label, point }) => `<tr><th scope="row">${label}</th><td>${count(point.reviews)}</td><td>${money(point.reviewSpend, 2)}</td><td>${money(point.missedLoss, 2)}</td><td>${money(point.modeledCost, 2)}</td></tr>`).join("")}</tbody></table></div>`;
+  return { summary, table };
+}
+
+/** @typedef {ReturnType<typeof capacityTradeoff>["minimum"]} ReplayPoint */
+/** @param {ReplayPoint[]} points @param {ReplayPoint} selected @param {ReplayPoint} minimum */
+function replayChart(points, selected, minimum) {
+  const eligible = points.length - 1;
+  const maxCost = points.reduce(
+    (max, point) => Math.max(max, point.modeledCost),
+    0,
+  );
+  const x = (/** @type {number} */ reviews) => 66 + (450 * reviews) / eligible;
+  const y = (/** @type {number} */ cost) => 176 - (144 * cost) / (maxCost || 1);
+  const path = points
+    .map(
+      (point, i) =>
+        `${i ? "L" : "M"}${x(point.reviews).toFixed(2)},${y(point.modeledCost).toFixed(2)}`,
+    )
+    .join(" ");
+  const ticks = maxCost ? [0, maxCost / 2, maxCost] : [0];
+  return `<svg class="chart replay-chart" viewBox="0 0 546 225" role="img" aria-labelledby="replay-chart-title replay-chart-desc"><title id="replay-chart-title">Modeled cost by reviews allocated</title><desc id="replay-chart-desc">Current alternative: ${count(selected.reviews)} reviews at ${money(selected.modeledCost, 2)}. Historical minimum: ${count(minimum.reviews)} reviews at ${money(minimum.modeledCost, 2)}.</desc>${ticks.map((cost) => `<line class="gridline" x1="66" x2="516" y1="${y(cost)}" y2="${y(cost)}"/><text x="59" y="${y(cost) + 4}" text-anchor="end">${money(cost)}</text>`).join("")}<path class="curve" d="${path}"/><circle class="replay-current" cx="${x(selected.reviews)}" cy="${y(selected.modeledCost)}" r="8"/><circle class="replay-minimum" cx="${x(minimum.reviews)}" cy="${y(minimum.modeledCost)}" r="4"/><text x="66" y="198" text-anchor="middle">0</text><text x="516" y="198" text-anchor="middle">${count(eligible)}</text><text x="291" y="220" text-anchor="middle">Reviews allocated</text></svg><div class="replay-legend"><span><i class="replay-key current" aria-hidden="true"></i> Current alternative</span><span><i class="replay-key minimum" aria-hidden="true"></i> Historical minimum</span></div>`;
 }
 
 /** @param {Policy} p @param {string} label @param {boolean} active */
@@ -412,6 +470,11 @@ function renderContent() {
   else if (page === "models") target.innerHTML = modelsContent();
   else if (page === "evidence") target.innerHTML = evidenceContent();
   syncScenarioControls();
+  if (page === "scenarios") {
+    const replay = replayContent();
+    el("replay-result").innerHTML = replay.summary;
+    el("replay-checkpoints").innerHTML = replay.table;
+  }
 }
 
 /** @param {string} id @param {string} [source] */
@@ -514,6 +577,27 @@ document.addEventListener("click", (event) => {
     render();
   }
   const action = target.getAttribute("data-action");
+  if (action === "apply-replay") {
+    const { minimum } = scenarioReplay();
+    setScenarioCapacity(minimum.reviews);
+    toast(`Alternative capacity set to ${count(minimum.reviews)} reviews.`);
+  }
+  if (action === "export-replay")
+    download(
+      "riskqueue-capacity-replay.json",
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          provenance: data.provenance,
+          policy,
+          assumptions: { reviewPreventsFraudLoss: true },
+          ...scenarioReplay(),
+        },
+        null,
+        2,
+      ) + "\n",
+      "application/json",
+    );
   if (action === "export-audit")
     download(
       "riskqueue-analysis.json",
