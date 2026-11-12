@@ -37,6 +37,9 @@ services:
     build: .
     command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0"]
     ports: ["8501:8501"]
+    volumes:
+      - ./dashboard:/app/dashboard:ro
+      - ./artifacts/figures:/app/artifacts/figures:ro
   worker:
     profiles: ["cloud"]
     build:
